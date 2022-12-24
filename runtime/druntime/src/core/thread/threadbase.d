@@ -26,7 +26,7 @@ private
     import core.internal.traits : externDFunc;
 
     // interface to rt.tlsgc
-    alias rt_tlsgc_init = externDFunc!("rt.tlsgc.init", void* function() nothrow @nogc);
+    public /*FIXME: remove public*/ alias rt_tlsgc_init = externDFunc!("rt.tlsgc.init", void* function() nothrow @nogc);
     alias rt_tlsgc_destroy = externDFunc!("rt.tlsgc.destroy", void function(void*) nothrow @nogc);
 
     alias ScanDg = void delegate(void* pstart, void* pend) nothrow;
@@ -118,7 +118,7 @@ class ThreadBase
     /**
      * Cleans up any remaining resources used by this object.
      */
-    package bool destructBeforeDtor() nothrow @nogc
+    public /*FIXME: package*/ bool destructBeforeDtor() nothrow @nogc
     {
         destroyDataStorageIfAvail();
 
@@ -128,7 +128,7 @@ class ThreadBase
         return (no_context || not_registered);
     }
 
-    package void tlsGCdataInit() nothrow @nogc
+    public /*FIXME: package*/ void tlsGCdataInit() nothrow @nogc
     {
         m_tlsgcdata = rt_tlsgc_init();
     }
@@ -150,7 +150,7 @@ class ThreadBase
         tlsGCdataInit();
     }
 
-    package void destroyDataStorage() nothrow @nogc
+    public /*FIXME: package*/ void destroyDataStorage() nothrow @nogc
     {
         rt_tlsgc_destroy(m_tlsgcdata);
         m_tlsgcdata = null;
@@ -433,7 +433,7 @@ class ThreadBase
     // Thread entry point.  Invokes the function or delegate passed on
     // construction (if any).
     //
-    package final void run()
+    protected /* package final  */ void run()
     {
         m_call();
     }
@@ -449,19 +449,19 @@ package:
     //
     // Main process thread
     //
-    __gshared ThreadBase    sm_main;
+    public /*FIXME: remove public*/ __gshared ThreadBase    sm_main;
 
 
     //
     // Standard thread data
     //
-    ThreadID            m_addr;
-    Callable            m_call;
-    string              m_name;
-    size_t              m_sz;
-    bool                m_isDaemon;
-    bool                m_isInCriticalRegion;
-    Throwable           m_unhandled;
+    public /*FIXME: remove public*/ ThreadID            m_addr;
+    protected                       Callable            m_call;
+    protected                       string              m_name;
+    protected size_t    m_sz;
+    public /*FIXME: remove public*/ bool                m_isDaemon;
+    public /*FIXME: remove public*/ bool                m_isInCriticalRegion;
+    public /*FIXME: remove public*/ Throwable           m_unhandled;
 
     ///////////////////////////////////////////////////////////////////////////
     // Storage of Active Thread
@@ -471,16 +471,16 @@ package:
     //
     // Sets a thread-local reference to the current thread object.
     //
-    package static void setThis(ThreadBase t) nothrow @nogc
+    public /*package, FIXME*/ static void setThis(ThreadBase t) nothrow @nogc
     {
         sm_this = t;
     }
 
 package(core.thread):
 
-    StackContext        m_main;
-    StackContext*       m_curr;
-    bool                m_lock;
+    public /*FIXME: remove public*/ StackContext        m_main;
+    public /*FIXME: remove public*/ StackContext*       m_curr;
+    public /*FIXME: remove public*/ bool                m_lock;
     private void*       m_tlsgcdata;
     version (SupportSanitizers_ABI)
     {
@@ -493,7 +493,7 @@ package(core.thread):
     ///////////////////////////////////////////////////////////////////////////
 
 
-    final void pushContext(StackContext* c) nothrow @nogc
+    public /*FIXME: remove public*/ final void pushContext(StackContext* c) nothrow @nogc
     in
     {
         assert(!c.within);
@@ -506,7 +506,7 @@ package(core.thread):
     }
 
 
-    final void popContext() nothrow @nogc
+    public /*FIXME: remove public*/ final void popContext() nothrow @nogc
     in
     {
         assert(m_curr && m_curr.within);
@@ -568,12 +568,12 @@ package(core.thread):
     // Careful as the GC acquires this lock after the GC lock to suspend all
     // threads any GC usage with slock held can result in a deadlock through
     // lock order inversion.
-    @property static Mutex slock() nothrow @nogc
+    public /*FIXME: remove public*/ @property static Mutex slock() nothrow @nogc
     {
         return cast(Mutex)_slock.ptr;
     }
 
-    @property static Mutex criticalRegionLock() nothrow @nogc
+    public /*FIXME: remove public*/ @property static Mutex criticalRegionLock() nothrow @nogc
     {
         return cast(Mutex)_criticalRegionLock.ptr;
     }
@@ -581,6 +581,7 @@ package(core.thread):
     __gshared align(mutexAlign) void[mutexClassInstanceSize] _slock;
     __gshared align(mutexAlign) void[mutexClassInstanceSize] _criticalRegionLock;
 
+    public /*FIXME: remove public*/
     static void initLocks() @nogc nothrow
     {
         import core.lifetime : emplace;
@@ -596,18 +597,18 @@ package(core.thread):
 
     __gshared StackContext*  sm_cbeg;
 
-    __gshared ThreadBase    sm_tbeg;
+    public /*FIXME: remove public*/ __gshared ThreadBase    sm_tbeg;
     __gshared size_t        sm_tlen;
 
     // can't use core.internal.util.array in public code
-    __gshared ThreadBase* pAboutToStart;
-    __gshared size_t      nAboutToStart;
+    protected __gshared ThreadBase* pAboutToStart;
+    protected __gshared size_t      nAboutToStart;
 
     //
     // Used for ordering threads in the global thread list.
     //
     ThreadBase          prev;
-    ThreadBase          next;
+    public /*FIXME: remove public*/ ThreadBase          next;
 
 
     ///////////////////////////////////////////////////////////////////////////
@@ -618,7 +619,7 @@ package(core.thread):
     //
     // Add a context to the global context list.
     //
-    static void add(StackContext* c) nothrow @nogc
+    public static void add(StackContext* c) nothrow @nogc
     in
     {
         assert(c);
@@ -643,7 +644,7 @@ package(core.thread):
     //
     // This assumes slock being acquired. This isn't done here to
     // avoid double locking when called from remove(Thread)
-    static void remove(StackContext* c) nothrow @nogc
+    public static void remove(StackContext* c) nothrow @nogc
     in
     {
         assert(c);
@@ -774,7 +775,7 @@ extern (C) void _d_monitordelete_nogc(Object h) @nogc nothrow;
  * Terminates the thread module. No other thread routine may be called
  * afterwards.
  */
-package void thread_term_tpl(ThreadT, MainThreadStore)(ref MainThreadStore _mainThreadStore) @nogc nothrow
+public /* FIXME: package */ void thread_term_tpl(ThreadT, MainThreadStore)(ref MainThreadStore _mainThreadStore) @nogc nothrow
 {
     assert(_mainThreadStore.ptr is cast(void*) ThreadBase.sm_main);
 
@@ -784,7 +785,8 @@ package void thread_term_tpl(ThreadT, MainThreadStore)(ref MainThreadStore _main
     _mainThreadStore[] = __traits(initSymbol, ThreadT)[];
     ThreadBase.sm_main = null;
 
-    assert(ThreadBase.sm_tbeg && ThreadBase.sm_tlen == 1);
+    assert(ThreadBase.sm_tbeg);
+    assert(ThreadBase.sm_tlen == 1);
     assert(!ThreadBase.nAboutToStart);
     if (ThreadBase.pAboutToStart) // in case realloc(p, 0) doesn't return null
     {
@@ -974,12 +976,15 @@ shared static ~this()
 }
 
 // Used for needLock below.
-package __gshared bool multiThreadedFlag = false;
+public /*FIXME: package*/ __gshared bool multiThreadedFlag = false;
 
 // Used for suspendAll/resumeAll below.
-package __gshared uint suspendDepth = 0;
+public /*FIXME: package*/ __gshared uint suspendDepth = 0;
 
-private alias resume = externDFunc!("core.thread.osthread.resume", void function(ThreadBase) nothrow @nogc);
+version(DruntimeAbstractRt)
+    private alias resume = externDFunc!("external.core.thread.resume", void function(ThreadBase) nothrow @nogc);
+else
+    private alias resume = externDFunc!("core.thread.osthread.resume", void function(ThreadBase) nothrow @nogc);
 
 /**
  * Resume all threads but the calling thread for "stop the world" garbage
@@ -1283,7 +1288,7 @@ do
 * Throws:
 *  ThreadError.
 */
-package void onThreadError(string msg) nothrow @nogc
+public /*FIXME: package*/ void onThreadError(string msg) nothrow @nogc
 {
     __gshared ThreadError error = new ThreadError(null);
     error.msg = msg;
@@ -1389,7 +1394,7 @@ in (ThreadBase.getThis())
 ///////////////////////////////////////////////////////////////////////////////
 // lowlovel threading support
 ///////////////////////////////////////////////////////////////////////////////
-package
+public /* FIXME: package */
 {
     __gshared size_t ll_nThreads;
     __gshared ll_ThreadData* ll_pThreads;
@@ -1401,6 +1406,7 @@ package
         return cast(Mutex)ll_lock.ptr;
     }
 
+    public /*FIXME: remove public*/
     void initLowlevelThreads() @nogc nothrow
     {
         import core.lifetime : emplace;

@@ -163,6 +163,10 @@ else version (Posix)
     alias ulong cpp_ulonglong;
   }
 }
+else version (CRuntime_Abstract)
+{
+    public import external.libc.config;
+}
 else version (WASI)
 {
     static if ( (void*).sizeof > int.sizeof )

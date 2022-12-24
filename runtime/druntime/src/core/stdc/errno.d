@@ -153,6 +153,10 @@ else version (Haiku)
         alias errno = _errnop;
     }
 }
+else version (CRuntime_Abstract)
+{
+    public import external.libc.errno;
+}
 else
 {
     ///
@@ -2078,6 +2082,10 @@ else version (Haiku)
     enum B_TRANSLATION_BASE_ERROR        = (B_TRANSLATION_ERROR_BASE + 0);
     enum B_NO_TRANSLATOR                 = (B_TRANSLATION_ERROR_BASE + 1);
     enum B_ILLEGAL_DATA                  = (B_TRANSLATION_ERROR_BASE + 2);
+}
+else version (CRuntime_Abstract)
+{
+    public import external.libc.errno;
 }
 else version (WASI)
 {

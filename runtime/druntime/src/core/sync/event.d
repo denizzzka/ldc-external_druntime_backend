@@ -24,6 +24,10 @@ else version (Posix)
     import core.sys.posix.sys.types;
     import core.sys.posix.time;
 }
+else version (DruntimeAbstractRt)
+{
+    public import external.core.event : Event;
+}
 else
 {
     static assert(false, "Platform not supported");
@@ -68,6 +72,8 @@ struct ProcessFile
 }
 ---
  */
+version (DruntimeAbstractRt){}
+else
 struct Event
 {
 nothrow @nogc:
@@ -303,17 +309,18 @@ private:
     Event ev1 = Event(false, false);
     assert(!ev1.wait(1.dur!"msecs"));
     ev1.set();
-    assert(ev1.wait());
+    assert(ev1.wait(1.dur!"msecs"));
     assert(!ev1.wait(1.dur!"msecs"));
 
     // manual-reset, initial state true
     Event ev2 = Event(true, true);
-    assert(ev2.wait());
-    assert(ev2.wait());
+    assert(ev2.wait(1.dur!"msecs"));
+    assert(ev2.wait(1.dur!"msecs"));
     ev2.reset();
     assert(!ev2.wait(1.dur!"msecs"));
 }
 
+version (ThreadsDisabled) {} else
 unittest
 {
     import core.thread, core.atomic;

@@ -1385,6 +1385,13 @@ class ConservativeGC : GC
 
 /* ============================ Gcx =============================== */
 
+version(DruntimeAbstractRt)
+{
+    import external.core.memory : PageSize;
+
+    enum PAGESIZE = PageSize;
+}
+else
 enum
 {   PAGESIZE =    4096,
 }
@@ -2266,7 +2273,7 @@ struct Gcx
         alias toscan = scanStack!precise;
 
         debug(MARK_PRINTF)
-            printf("marking range: [%p..%p] (%#llx)\n", pbot, ptop, cast(long)(ptop - pbot));
+            printf("marking range: [%p..%p] (%#llx)\n", rng.pbot, rng.ptop, cast(long)(rng.ptop - rng.pbot));
 
         // limit the amount of ranges added to the toscan stack
         enum FANOUT_LIMIT = 32;
@@ -3319,7 +3326,7 @@ Lmark:
 
         busyThreads.atomicOp!"+="(1); // main thread is busy
 
-        evStart.set();
+        evStart.setIfInitialized();
 
         debug(PARALLEL_PRINTF) printf("mark %lld roots\n", cast(ulong)(ptop - pbot));
 
@@ -3556,8 +3563,6 @@ struct Pool
 
     void initialize(size_t npages, bool isLargeObject) nothrow
     {
-        assert(npages >= 256);
-
         this.isLargeObject = isLargeObject;
         size_t poolsize;
 
@@ -3952,6 +3957,7 @@ struct Pool
         }
     }
 
+    pragma(inline,true)
     void setPointerBitmapSmall(void* p, size_t s, size_t allocSize, uint attr, const TypeInfo ti) nothrow
     {
         if (!(attr & BlkAttr.NO_SCAN))
@@ -4914,6 +4920,7 @@ unittest
 // improve predictability of coverage of code that is eventually not hit by other tests
 debug (SENTINEL) {} else // cannot extend with SENTINEL
 debug (MARK_PRINTF) {} else // takes forever
+version (OnlyLowMemUnittest) {} else
 unittest
 {
     import core.memory;

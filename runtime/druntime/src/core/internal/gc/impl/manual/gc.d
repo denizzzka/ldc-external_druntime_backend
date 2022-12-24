@@ -19,6 +19,8 @@
  */
 module core.internal.gc.impl.manual.gc;
 
+//FIXME: need way to enable/disable compiling GC engines
+
 import core.gc.gcinterface;
 
 import core.internal.container.array;

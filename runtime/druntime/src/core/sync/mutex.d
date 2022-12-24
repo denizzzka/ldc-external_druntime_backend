@@ -24,8 +24,14 @@ version (Windows)
         EnterCriticalSection, InitializeCriticalSection, LeaveCriticalSection,
         TryEnterCriticalSection+/;
 }
+else version (DruntimeAbstractRt)
+{
+    version = AnyLibc;
+}
 else version (Posix)
 {
+    version = AnyLibc;
+
     import core.sys.posix.pthread;
 }
 else
@@ -41,6 +47,10 @@ else
 // bool tryLock();
 ////////////////////////////////////////////////////////////////////////////////
 
+version (DruntimeAbstractRt)
+    public import external.core.mutex;
+else
+{
 
 /**
  * This class represents a general purpose, recursive mutex.
@@ -79,7 +89,7 @@ class Mutex :
         {
             InitializeCriticalSection(cast(CRITICAL_SECTION*) &m_hndl);
         }
-        else version (Posix)
+        else version (AnyLibc)
         {
             import core.internal.abort : abort;
             pthread_mutexattr_t attr = void;
@@ -142,7 +152,7 @@ class Mutex :
         {
             DeleteCriticalSection(&m_hndl);
         }
-        else version (Posix)
+        else version (AnyLibc)
         {
             import core.internal.abort : abort;
             !pthread_mutex_destroy(&m_hndl) ||
@@ -184,7 +194,7 @@ class Mutex :
         {
             EnterCriticalSection(&m_hndl);
         }
-        else version (Posix)
+        else version (AnyLibc)
         {
             if (pthread_mutex_lock(&m_hndl) == 0)
                 return;
@@ -222,7 +232,7 @@ class Mutex :
         {
             LeaveCriticalSection(&m_hndl);
         }
-        else version (Posix)
+        else version (AnyLibc)
         {
             if (pthread_mutex_unlock(&m_hndl) == 0)
                 return;
@@ -264,7 +274,7 @@ class Mutex :
         {
             return TryEnterCriticalSection(&m_hndl) != 0;
         }
-        else version (Posix)
+        else version (AnyLibc)
         {
             return pthread_mutex_trylock(&m_hndl) == 0;
         }
@@ -276,7 +286,7 @@ private:
     {
         CRITICAL_SECTION    m_hndl;
     }
-    else version (Posix)
+    else version (AnyLibc)
     {
         pthread_mutex_t     m_hndl;
     }
@@ -290,7 +300,7 @@ private:
 
 
 package:
-    version (Posix)
+    version (AnyLibc)
     {
         pthread_mutex_t* handleAddr()
         {
@@ -380,6 +390,8 @@ unittest
     assert(!mtx.tryLock_nothrow());
 
     free(cast(void*) mtx);
+}
+
 }
 
 // Test single-thread (non-shared) use.

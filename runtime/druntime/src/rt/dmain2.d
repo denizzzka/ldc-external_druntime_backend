@@ -85,10 +85,11 @@ version (CRuntime_Microsoft)
 
 __gshared string[] _d_args = null;
 
-extern (C) string[] rt_args()
-{
-    return _d_args;
-}
+//FIXME:
+//~ extern (C) string[] rt_args()
+//~ {
+    //~ return _d_args;
+//~ }
 
 // This variable is only ever set by a debugger on initialization so it should
 // be fine to leave it as __gshared.
@@ -252,6 +253,7 @@ private alias extern(C) int function(char[][] args) MainFunc;
  * runs embedded unittests and then runs the given D main() function,
  * optionally catching and printing any unhandled exceptions.
  */
+version (DruntimeAbstractRt) {} else
 extern (C) int _d_run_main(int argc, char** argv, MainFunc mainFunc)
 {
     // Set up _cArgs and array of D char[] slices, then forward to _d_run_main2
@@ -517,10 +519,10 @@ private extern (C) int _d_run_main2(char[][] args, size_t totalArgsLength, MainF
 
     tryExec(&runAll);
 
-    // Issue 10344: flush stdout and return nonzero on failure
     if (.fflush(.stdout) != 0)
     {
-        .fprintf(.stderr, "Failed to flush stdout: %s\n", .strerror(.errno));
+        //TODO: strerror() contains huge amount of strings, isn't appropriate for tiny bare-metal devices
+        //~ .fprintf(.stderr, "Failed to flush stdout: %s\n", .strerror(.errno));
         if (result == 0)
         {
             result = EXIT_FAILURE;

@@ -1,0 +1,1 @@
+option('use_external_backend', type: 'boolean', value: false, description: 'Use external druntime backend')

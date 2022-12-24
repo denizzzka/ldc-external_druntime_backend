@@ -14,6 +14,12 @@
 
 module core.stdc.stdint;
 
+version(CRuntime_Abstract)
+{
+    public import external.libc.stdint;
+}
+else:
+
 import core.stdc.config;
 import core.stdc.stddef; // for wchar_t
 import core.stdc.signal; // for sig_atomic_t
@@ -376,6 +382,10 @@ else version (Solaris)
     alias uintptr_t = size_t;    ///
     alias intmax_t  = long;      ///
     alias uintmax_t = ulong;     ///
+}
+else version (CRuntime_Abstract)
+{
+    public import external.libc.stdint;
 }
 else version (WASI)
 {

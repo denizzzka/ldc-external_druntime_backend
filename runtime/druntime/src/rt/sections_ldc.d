@@ -77,12 +77,15 @@ struct SectionGroup
 private:
     ModuleGroup _moduleGroup;
 
-    import rt.util.container.array;
-    Array!(void[]) _gcRanges;
+    import core.internal.container.array;
+    public Array!(void[]) _gcRanges;
 
     version (Solaris)
     {
         size_t _tlsSize;
+    }
+    version (DruntimeAbstractRt)
+    {
     }
     else version (UseELF)
     {
@@ -321,17 +324,18 @@ void initSections() nothrow @nogc
     debug(PRINTF) printf("initSections called\n");
     globalSectionGroup.moduleGroup = ModuleGroup(getModuleInfos());
 
-    static void pushRange(void* start, void* end) nothrow @nogc
-    {
-        globalSectionGroup._gcRanges.insertBack(start[0 .. (end - start)]);
-    }
-
     version (UseELF)
     {
         dl_phdr_info phdr = void;
         findPhdrForAddr(&globalSectionGroup, &phdr) || assert(0);
 
         scanSegments(phdr, &globalSectionGroup);
+    }
+    else version (DruntimeAbstractRt)
+    {
+        import external.rt.sections : fillGlobalSectionGroup;
+
+        fillGlobalSectionGroup(globalSectionGroup);
     }
 }
 
@@ -348,19 +352,28 @@ void finiSections() nothrow @nogc
 /***
  * Called once per thread; returns array of thread local storage ranges
  */
+version (DruntimeAbstractRt)
+{
+    import external.rt.sections : initTLSRanges;
+}
+else version (UseELF)
 void[] initTLSRanges() nothrow @nogc
 {
     debug(PRINTF) printf("initTLSRanges called\n");
-    version (UseELF)
-    {
-        auto rng = getTLSRange(&globalSectionGroup);
-        debug(PRINTF) printf("Add range %p %d\n", rng ? rng.ptr : cast(void*)0, rng ? rng.length : 0);
-        return rng;
-    }
-    else static assert(0, "TLS range detection not implemented for this OS.");
 
+    auto rng = getTLSRange(&globalSectionGroup);
+    debug(PRINTF) printf("Add range %p %d\n", rng ? rng.ptr : cast(void*)0, rng ? rng.length : 0);
+
+    return rng;
 }
+else
+    static assert(0, "TLS range detection not implemented for this OS.");
 
+version (DruntimeAbstractRt)
+{
+    public import external.rt.sections : finiTLSRanges;
+}
+else
 void finiTLSRanges(void[] rng) nothrow @nogc
 {
     debug(PRINTF) printf("finiTLSRanges called\n");

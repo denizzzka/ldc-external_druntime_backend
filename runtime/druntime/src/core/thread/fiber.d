@@ -1202,6 +1202,8 @@ private:
         //       room for this struct explicitly would be to mash it into the
         //       base of the stack being allocated below.  However, doing so
         //       requires too much special logic to be worthwhile.
+
+        import core.memory : GC;
         m_ctxt = new StackContext;
 
         version (SupportSanitizers)
@@ -1258,6 +1260,7 @@ private:
         else
         {
             version (Posix) import core.sys.posix.sys.mman; // mmap, MAP_ANON
+            import core.stdc.stdlib : malloc; // available everywhere
 
             static if ( __traits( compiles, ucontext_t ) )
             {
@@ -1288,13 +1291,9 @@ private:
             {
                 m_pmem = valloc( sz );
             }
-            else static if ( __traits( compiles, malloc ) )
-            {
-                m_pmem = malloc( sz );
-            }
             else
             {
-                m_pmem = null;
+                m_pmem = malloc( sz );
             }
 
             if ( !m_pmem )
@@ -1330,7 +1329,8 @@ private:
             }
         }
 
-        Thread.add( m_ctxt );
+        import core.thread.threadbase; //FIXME: replace in all module
+        ThreadBase.add( m_ctxt );
     }
 
 
@@ -1338,17 +1338,16 @@ private:
     // Free this fiber's stack.
     //
     final void freeStack() nothrow @nogc
-    in
-    {
-        assert( m_pmem && m_ctxt );
-    }
-    do
+    in(m_pmem)
+    in(m_ctxt)
     {
         // NOTE: m_ctxt is guaranteed to be alive because it is held in the
         //       global context list.
         Thread.slock.lock_nothrow();
         scope(exit) Thread.slock.unlock_nothrow();
-        Thread.remove( m_ctxt );
+
+        import core.thread.threadbase; //FIXME: replace in all module
+        ThreadBase.remove( m_ctxt );
 
         version (Windows)
         {
@@ -1356,17 +1355,14 @@ private:
         }
         else
         {
-            import core.sys.posix.sys.mman; // munmap
+            version (Posix) import core.sys.posix.sys.mman; // munmap
+            import core.stdc.stdlib : free;
 
             static if ( __traits( compiles, mmap ) )
             {
                 munmap( m_pmem, m_size );
             }
-            else static if ( __traits( compiles, valloc ) )
-            {
-                free( m_pmem );
-            }
-            else static if ( __traits( compiles, malloc ) )
+            else
             {
                 free( m_pmem );
             }
@@ -1388,20 +1384,23 @@ private:
     }
     do
     {
-        void* pstack = m_ctxt.tstack;
-        scope( exit )  m_ctxt.tstack = pstack;
-
-        void push( size_t val ) nothrow
+        version (DruntimeAbstractRt) {} else
         {
-            version (StackGrowsDown)
+            void* pstack = m_ctxt.tstack;
+            scope( exit )  m_ctxt.tstack = pstack;
+
+            void push( size_t val ) nothrow
             {
-                pstack -= size_t.sizeof;
-                *(cast(size_t*) pstack) = val;
-            }
-            else
-            {
-                pstack += size_t.sizeof;
-                *(cast(size_t*) pstack) = val;
+                version (StackGrowsDown)
+                {
+                    pstack -= size_t.sizeof;
+                    *(cast(size_t*) pstack) = val;
+                }
+                else
+                {
+                    pstack += size_t.sizeof;
+                    *(cast(size_t*) pstack) = val;
+                }
             }
         }
 
@@ -1420,6 +1419,16 @@ private:
             }
         }
 
+        version (DruntimeAbstractRt)
+        {
+            import external.core.fiber : initStack;
+
+            version(StackGrowsDown)
+                initStack!true(m_ctxt);
+            else
+                initStack!false(m_ctxt);
+        }
+        else
         version (AsmX86_Windows)
         {
             version (StackGrowsDown) {} else static assert( false );
@@ -2172,6 +2181,7 @@ unittest
 
 
 // Multiple threads running separate fibers
+version(ThreadsDisabled) {} else
 unittest
 {
     auto group = new ThreadGroup();
@@ -2190,6 +2200,7 @@ unittest
 // optimization levels.
 //
 // https://github.com/ldc-developers/ldc/issues/666
+version(ThreadsDisabled) {} else
 unittest
 {
     static int tls;
@@ -2269,6 +2280,7 @@ unittest
 }
 
 // Multiple threads running shared fibers
+version(ThreadsDisabled) {} else
 unittest
 {
     shared bool[10] locks;
@@ -2467,6 +2479,7 @@ unittest
 }
 
 // stress testing GC stack scanning
+version(ThreadsDisabled) {} else
 unittest
 {
     import core.memory;

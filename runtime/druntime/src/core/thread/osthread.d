@@ -221,6 +221,9 @@ else
  * A new thread may be created using either derivation or composition, as
  * in the following example.
  */
+version (DruntimeAbstractRt)
+    public import external.core.thread: Thread;
+else
 class Thread : ThreadBase
 {
     //
@@ -1055,6 +1058,8 @@ private extern(D) static void thread_yield() @nogc nothrow
 }
 
 ///
+version(ThreadsDisabled) {} else
+{
 unittest
 {
     class DerivedThread : Thread
@@ -1120,7 +1125,7 @@ unittest
 unittest
 {
     // use >PAGESIZE to avoid stack overflow (e.g. in an syscall)
-    auto thr = new Thread(function{}, 4096 + 1).start();
+    auto thr = new Thread(function{}, PAGESIZE + 8 /* stack size aligned for most platforms */).start();
     thr.join();
 }
 
@@ -1246,6 +1251,7 @@ unittest
     assert(!inCriticalRegion);
     thread_resumeAll();
 }
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // GC Support Routines
@@ -1289,6 +1295,16 @@ version (Posix)
     private __gshared int resumeSignalNumber;
 }
 
+version (DruntimeAbstractRt)
+{
+    import external.core.thread : external_attachThread;
+
+    private extern (D) ThreadBase attachThread(ThreadBase _thisThread) @nogc nothrow
+    {
+        return external_attachThread(_thisThread);
+    }
+}
+else
 private extern (D) ThreadBase attachThread(ThreadBase _thisThread) @nogc nothrow
 {
     Thread thisThread = _thisThread.toThread();
@@ -1432,6 +1448,8 @@ version (Windows)
     }
 }
 
+version (LDC) {} else
+version (PPC64) version = ExternStackShell;
 
 // Calls the given delegate, passing the current thread's stack pointer to it.
 package extern(D) void callWithStackShell(scope callWithStackShellDg fn) nothrow
@@ -1713,7 +1731,16 @@ package extern(D) void* getStackTop() nothrow @nogc
         static assert(false, "Architecture not supported.");
 }
 
+version (DruntimeAbstractRt)
+{
+    static import external.core.thread;
 
+    package extern(D) void* getStackBottom() nothrow @nogc
+    {
+        return external.core.thread.getStackBottom();
+    }
+}
+else
 version (LDC_Windows)
 {
     package extern(D) void* getStackBottom() nothrow @nogc @naked
@@ -1819,10 +1846,10 @@ private extern (D) bool suspend( Thread t ) nothrow @nogc
     }
     else if (t.m_isInCriticalRegion)
     {
-        Thread.criticalRegionLock.unlock_nothrow();
+        ThreadBase.criticalRegionLock.unlock_nothrow();
         Thread.sleep(waittime);
         if (waittime < dur!"msecs"(10)) waittime *= 2;
-        Thread.criticalRegionLock.lock_nothrow();
+        ThreadBase.criticalRegionLock.lock_nothrow();
         goto Lagain;
     }
 
@@ -2041,6 +2068,9 @@ private extern (D) bool suspend( Thread t ) nothrow @nogc
  * Throws:
  *  ThreadError if the suspend operation fails for a running thread.
  */
+version (DruntimeAbstractRt)
+    public import external.core.thread: thread_suspendAll;
+else
 extern (C) void thread_suspendAll() nothrow
 {
     // NOTE: We've got an odd chicken & egg problem here, because while the GC
@@ -2116,6 +2146,7 @@ extern (C) void thread_suspendAll() nothrow
  * Throws:
  *  ThreadError if the resume fails for a running thread.
  */
+version(DruntimeAbstractRt) {} else
 private extern (D) void resume(ThreadBase _t) nothrow @nogc
 {
     Thread t = _t.toThread;
@@ -2171,6 +2202,8 @@ private extern (D) void resume(ThreadBase _t) nothrow @nogc
             t.m_curr.tstack = t.m_curr.bstack;
         }
     }
+    else
+        static assert(false);
 }
 
 
@@ -2179,6 +2212,9 @@ private extern (D) void resume(ThreadBase _t) nothrow @nogc
  * garbage collector on startup and before any other thread routines
  * are called.
  */
+version (DruntimeAbstractRt)
+    public import external.core.thread : thread_init;
+else
 extern (C) void thread_init() @nogc nothrow
 {
     // NOTE: If thread_init itself performs any allocations then the thread
@@ -2269,12 +2305,16 @@ extern (C) void thread_init() @nogc nothrow
 }
 
 private alias MainThreadStore = void[__traits(classInstanceSize, Thread)];
-package __gshared align(__traits(classInstanceAlignment, Thread)) MainThreadStore _mainThreadStore;
+/*TODO: change to package:*/
+public  __gshared align(__traits(classInstanceAlignment, Thread)) MainThreadStore _mainThreadStore;
 
 /**
  * Terminates the thread module. No other thread routine may be called
  * afterwards.
  */
+version (DruntimeAbstractRt)
+    public import external.core.thread : thread_term;
+else
 extern (C) void thread_term() @nogc nothrow
 {
     thread_term_tpl!(Thread)(_mainThreadStore);
@@ -2285,8 +2325,14 @@ extern (C) void thread_term() @nogc nothrow
 // Thread Entry Point and Signal Handlers
 ///////////////////////////////////////////////////////////////////////////////
 
-
-version (Windows)
+version (DruntimeAbstractRt)
+{
+    public import external.core.thread :
+        thread_entryPoint,
+        thread_suspendHandler,
+        thread_resumeHandler;
+}
+else version (Windows)
 {
     private
     {
@@ -2802,6 +2848,9 @@ private
  * Returns: the platform specific thread ID of the new thread. If an error occurs, `ThreadID.init`
  *  is returned.
  */
+version (DruntimeAbstractRt)
+    public import external.core.thread : createLowLevelThread;
+else
 ThreadID createLowLevelThread(void delegate() nothrow dg, uint stacksize = 0,
                               void delegate() nothrow cbDllUnload = null) nothrow @nogc
 {
@@ -2890,6 +2939,9 @@ ThreadID createLowLevelThread(void delegate() nothrow dg, uint stacksize = 0,
  * Params:
  *  tid = the thread ID returned by `createLowLevelThread`.
  */
+version (DruntimeAbstractRt)
+    public import external.core.thread : joinLowLevelThread;
+else
 void joinLowLevelThread(ThreadID tid) nothrow @nogc
 {
     version (Windows)
@@ -2918,6 +2970,7 @@ void joinLowLevelThread(ThreadID tid) nothrow @nogc
     }
 }
 
+version(ThreadsDisabled){} else
 nothrow @nogc unittest
 {
     struct TaskWithContect
