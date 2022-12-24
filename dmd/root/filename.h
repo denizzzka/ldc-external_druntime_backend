@@ -44,4 +44,8 @@ public:
 
     static void free(const char *str);
     const char *toChars() const;
+
+#if IN_LLVM
+    void reset(const char *str);
+#endif
 };

@@ -677,7 +677,8 @@ enum WANTexpand = 1;    // expand const/immutable variables if possible
 /***********************************************************
  * https://dlang.org/spec/expression.html#expression
  */
-extern (C++) abstract class Expression : ASTNode
+// IN_LLVM: instantiated in gen/asm-x86.h (`Handled = createExpression(...)`)
+extern (C++) /* IN_LLVM abstract */ class Expression : ASTNode
 {
     const EXP op;   // to minimize use of dynamic_cast
     ubyte size;     // # of bytes in Expression so we can copy() it
@@ -3181,7 +3182,17 @@ extern (C++) final class StructLiteralExp : Expression
     Expressions* elements;  /// parallels sd.fields[] with null entries for fields to skip
     Type stype;             /// final type of result (can be different from sd's type)
 
+version (IN_LLVM)
+{
+    // With the introduction of pointers returned from CTFE, struct literals can
+    // now contain pointers to themselves. While in toElem, contains a pointer
+    // to the memory used to build the literal for resolving such references.
+    void* inProgressMemory; // llvm::Value*
+}
+else
+{
     Symbol* sym;            /// back end symbol to initialize with literal
+}
 
     /** pointer to the origin instance of the expression.
      * once a new expression is created, origin is set to 'this'.
@@ -3653,6 +3664,15 @@ extern (C++) final class SymOffExp : SymbolExp
 
     override Optional!bool toBool()
     {
+version (IN_LLVM)
+{
+        import gen.dpragma : LDCPragma;
+
+        // For a weak symbol, we only statically know that it is non-null if the
+        // offset is non-zero.
+        if (var.llvmInternal == LDCPragma.LLVMextern_weak && offset == 0)
+            return typeof(return)();
+}
         return typeof(return)(true);
     }
 

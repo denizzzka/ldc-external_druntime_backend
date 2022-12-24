@@ -906,6 +906,27 @@ extern (C++) final class PragmaDeclaration : AttribDeclaration
 
             return sc2;
         }
+        if (IN_LLVM && ident == Id.LDC_profile_instr)
+        {
+            import gen.dpragma : DtoCheckProfileInstrPragma;
+
+            bool emitInstr = true;
+            if (!args || args.dim != 1 || !DtoCheckProfileInstrPragma((*args)[0], emitInstr))
+            {
+                error("pragma(LDC_profile_instr, true or false) expected");
+                (*args)[0] = ErrorExp.get();
+            }
+            else
+            {
+                // Only create a new scope if the emitInstrumentation flag is changed
+                if (sc.emitInstrumentation != emitInstr)
+                {
+                    auto newscope = sc.copy();
+                    newscope.emitInstrumentation = emitInstr;
+                    return newscope;
+                }
+            }
+        }
         return sc;
     }
 

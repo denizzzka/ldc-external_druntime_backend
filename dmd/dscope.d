@@ -120,6 +120,11 @@ struct Scope
     /// mangle type
     CPPMANGLE cppmangle = CPPMANGLE.def;
 
+version (IN_LLVM)
+{
+    bool emitInstrumentation = true;   // whether to emit instrumentation with -fprofile-instr-generate
+}
+
     /// inlining strategy for functions
     PragmaDeclaration inlining;
 

@@ -421,7 +421,7 @@ package (dmd) extern (C++) final class StatementSemanticVisitor : Visitor
             }
         }
 
-        if (cs.statements.length == 1)
+        if (cs.statements.length == 1 && (!IN_LLVM || !cs.isCompoundAsmStatement()))
         {
             result = (*cs.statements)[0];
             return;
@@ -890,7 +890,8 @@ package (dmd) extern (C++) final class StatementSemanticVisitor : Visitor
                 }
             }
 
-            FuncExp flde = foreachBodyToFunction(sc2, fs, tfld);
+            FuncExp flde = foreachBodyToFunction(sc2, fs, tfld,
+                /*IN_LLVM: enforceSizeTIndex=*/ tab.ty == Tarray || tab.ty == Tsarray);
             if (!flde)
                 return null;
 
@@ -1630,7 +1631,8 @@ package (dmd) extern (C++) final class StatementSemanticVisitor : Visitor
      *  Function literal created, as an expression
      *  null if error.
      */
-    static FuncExp foreachBodyToFunction(Scope* sc, ForeachStatement fs, TypeFunction tfld)
+    static FuncExp foreachBodyToFunction(Scope* sc, ForeachStatement fs, TypeFunction tfld,
+        /*IN_LLVM*/ bool enforceSizeTIndex)
     {
         auto params = new Parameters();
         foreach (i, p; *fs.parameters)
@@ -1640,6 +1642,11 @@ package (dmd) extern (C++) final class StatementSemanticVisitor : Visitor
 
             p.type = p.type.typeSemantic(fs.loc, sc);
             p.type = p.type.addStorageClass(p.storageClass);
+version (IN_LLVM)
+{
+            // Type of parameter may be different; see below
+            auto para_type = p.type;
+}
             if (tfld)
             {
                 Parameter prm = tfld.parameterList[i];
@@ -1669,13 +1676,37 @@ package (dmd) extern (C++) final class StatementSemanticVisitor : Visitor
             LcopyArg:
                 id = Identifier.generateId("__applyArg", cast(int)i);
 
+version (IN_LLVM)
+{
+                // In case of a foreach loop on an array the index passed
+                // to the delegate is always of type size_t. The type of
+                // the parameter must be changed to size_t and a cast to
+                // the type used must be inserted. Otherwise the index is
+                // always 0 on a big endian architecture. This fixes
+                // issue #326.
+                Initializer ie;
+                if (fs.parameters.dim == 2 && i == 0 && enforceSizeTIndex)
+                {
+                    para_type = Type.tsize_t;
+                    ie = new ExpInitializer(fs.loc,
+                                            new CastExp(fs.loc,
+                                                        new IdentifierExp(fs.loc, id), p.type));
+                }
+                else
+                {
+                    ie = new ExpInitializer(fs.loc, new IdentifierExp(fs.loc, id));
+                }
+}
+else
+{
                 Initializer ie = new ExpInitializer(fs.loc, new IdentifierExp(fs.loc, id));
+}
                 auto v = new VarDeclaration(fs.loc, p.type, p.ident, ie);
                 v.storage_class |= STC.temp | (stc & STC.scope_);
                 Statement s = new ExpStatement(fs.loc, v);
                 fs._body = new CompoundStatement(fs.loc, s, fs._body);
             }
-            params.push(new Parameter(stc, p.type, id, null, null));
+            params.push(new Parameter(stc, IN_LLVM ? para_type : p.type, id, null, null));
         }
         // https://issues.dlang.org/show_bug.cgi?id=13840
         // Throwable nested function inside nothrow function is acceptable.
@@ -2066,6 +2097,38 @@ package (dmd) extern (C++) final class StatementSemanticVisitor : Visitor
                 }
             }
         }
+        // IN_LLVM. FIXME Move to pragma.cpp
+        else if (ps.ident == Id.LDC_allow_inline)
+        {
+            sc.func.allowInlining = true;
+        }
+        // IN_LLVM. FIXME Move to pragma.cpp
+        else if (ps.ident == Id.LDC_never_inline)
+        {
+            sc.func.neverInline = true;
+        }
+        // IN_LLVM. FIXME Move to pragma.cpp
+        else if (ps.ident == Id.LDC_profile_instr)
+        {
+            import gen.dpragma : DtoCheckProfileInstrPragma;
+
+            bool emitInstr = true;
+            if (!ps.args || ps.args.dim != 1 || !DtoCheckProfileInstrPragma((*ps.args)[0], emitInstr))
+            {
+                ps.error("pragma(LDC_profile_instr, true or false) expected");
+                return setError();
+            }
+            else
+            {
+                FuncDeclaration fd = sc.func;
+                if (fd is null)
+                {
+                    ps.error("pragma(LDC_profile_instr, ...) is not inside a function");
+                    return setError();
+                }
+                fd.emitInstrumentation = emitInstr;
+            }
+        }
         else if (ps.ident == Id.linkerDirective)
         {
             /* Should this be allowed?
@@ -2275,6 +2338,10 @@ package (dmd) extern (C++) final class StatementSemanticVisitor : Visitor
                     if (cs.exp.equals(gcs.exp))
                     {
                         gcs.cs = cs;
+version (IN_LLVM)
+{
+                        cs.gototarget = true;
+}
                         continue Lgotocase;
                     }
                 }
@@ -2394,6 +2461,18 @@ package (dmd) extern (C++) final class StatementSemanticVisitor : Visitor
             return setError();
         }
 
+version (IN_LLVM)
+{
+        /+ hasGotoDefault is set by GotoDefaultStatement.semantic
+         + at which point sdefault may still be null, therefore
+         + set sdefault.gototarget here.
+         +/
+        if (ss.hasGotoDefault)
+        {
+            assert(ss.sdefault);
+            ss.sdefault.gototarget = true;
+        }
+}
 
         if (!ss.condition.type.isString())
         {
@@ -2767,6 +2846,12 @@ package (dmd) extern (C++) final class StatementSemanticVisitor : Visitor
             gds.error("`goto default` not allowed in `final switch` statement");
             return setError();
         }
+
+version (IN_LLVM)
+{
+        gds.sw.hasGotoDefault = true;
+}
+
         result = gds;
     }
 
@@ -2780,6 +2865,11 @@ package (dmd) extern (C++) final class StatementSemanticVisitor : Visitor
             gcs.error("`goto case` not in `switch` statement");
             return setError();
         }
+
+version (IN_LLVM)
+{
+        gcs.sw = sc.sw;
+}
 
         if (gcs.exp)
         {
@@ -3238,6 +3328,10 @@ package (dmd) extern (C++) final class StatementSemanticVisitor : Visitor
                         bs.error("cannot break out of `finally` block");
                     else
                     {
+version (IN_LLVM)
+{
+                        bs.target = ls;
+}
                         ls.breaks = true;
                         result = bs;
                         return;
@@ -3326,6 +3420,10 @@ package (dmd) extern (C++) final class StatementSemanticVisitor : Visitor
                         cs.error("cannot continue out of `finally` block");
                     else
                     {
+version (IN_LLVM)
+{
+                        cs.target = ls;
+}
                         result = cs;
                         return;
                     }

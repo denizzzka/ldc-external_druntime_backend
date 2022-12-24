@@ -228,7 +228,10 @@ extern (C++) abstract class Declaration : Dsymbol
       enum wasRead    = 1; // set if AliasDeclaration was read
       enum ignoreRead = 2; // ignore any reads of AliasDeclaration
 
+version (IN_LLVM) {} else
+{
     Symbol* isym;           // import version of csym
+}
 
     // overridden symbol with pragma(mangle, "...")
     const(char)[] mangleOverride;
@@ -676,6 +679,12 @@ extern (C++) final class TupleDeclaration : Declaration
         }
     }
 
+    version (IN_LLVM)
+    final void foreachVar(Visitor v)
+    {
+        foreachVar(sym => sym.accept(v));
+    }
+
     /***********************************************************
      * Calls dg(Dsymbol) for each Dsymbol, which should be a VarDeclaration
      * inside VarExp (isexp == true).
@@ -1102,6 +1111,10 @@ extern (C++) class VarDeclaration : Declaration
         /// This means the var is not rebindable once assigned,
         /// and the destructor gets run when it goes out of scope
         bool onstack;
+version (IN_LLVM)
+{
+        bool onstackWithDtor;   /// it is a class that was allocated on the stack and needs destruction
+}
 
         bool overlapped;        /// if it is a field and has overlapping
         bool overlapUnsafe;     /// if it is an overlapping field and the overlaps are unsafe

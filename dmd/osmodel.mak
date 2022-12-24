@@ -60,7 +60,8 @@ ifeq (,$(MODEL))
     ARCH:=x86_64
   endif
   ifneq (,$(findstring $(uname_M),aarch64 arm64))
-    MODEL:=64
+    # LDC: don't set MODEL
+    #MODEL:=64
     ARCH:=aarch64
   endif
   ifneq (,$(findstring $(uname_M),i386 i586 i686))
@@ -68,8 +69,14 @@ ifeq (,$(MODEL))
     ARCH:=x86
   endif
   ifeq (,$(MODEL))
-    $(error Cannot figure 32/64 model and arch from uname -m: $(uname_M))
+    # LDC: only warn
+    $(warning Cannot figure 32/64 model and arch from uname -m: $(uname_M))
   endif
 endif
 
-MODEL_FLAG:=-m$(MODEL)
+# LDC: only set MODEL_FLAG if need be
+ifneq (,$(MODEL))
+  ifneq (default,$(MODEL))
+    MODEL_FLAG:=-m$(MODEL)
+  endif
+endif

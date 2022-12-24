@@ -75,6 +75,8 @@ class StaticAssert;
 struct AA;
 #ifdef IN_GCC
 typedef union tree_node Symbol;
+#elif IN_LLVM
+struct IrDsymbol;
 #else
 struct Symbol;
 #endif
@@ -174,7 +176,12 @@ public:
     Dsymbol *parent;
     /// C++ namespace this symbol belongs to
     CPPNamespaceDeclaration *namespace_;
+#if IN_LLVM
+    IrDsymbol *ir;
+    unsigned llvmInternal;
+#else
     Symbol *csym;               // symbol for code generator
+#endif
     Loc loc;                    // where defined
     Scope *_scope;               // !=NULL means context to use for semantic()
     const utf8_t *prettystring;
@@ -189,7 +196,7 @@ public:
     virtual const char *toPrettyCharsHelper(); // helper to print fully qualified (template) arguments
     Loc getLoc();
     const char *locToChars();
-    bool equals(const RootObject *o) const override;
+    bool equals(const RootObject * const o) const override;
     bool isAnonymous() const;
     void error(const Loc &loc, const char *format, ...);
     void error(const char *format, ...);

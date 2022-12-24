@@ -20,14 +20,15 @@ import core.sys.windows.winbase;
 import core.sys.windows.windef;
 import core.sys.windows.winreg;
 
-import dmd.root.env;
+version (IN_LLVM) {} else import dmd.root.env;
 import dmd.root.file;
 import dmd.root.filename;
 import dmd.common.outbuffer;
 import dmd.root.rmem;
 import dmd.root.string : toDString;
 
-private immutable supportedPre2017Versions = ["14.0", "12.0", "11.0", "10.0", "9.0"];
+version (IN_LLVM) private immutable supportedPre2017Versions = ["14.0"];
+else              private immutable supportedPre2017Versions = ["14.0", "12.0", "11.0", "10.0", "9.0"];
 
 extern(C++) struct VSOptions
 {
@@ -53,6 +54,8 @@ extern(C++) struct VSOptions
         detectVCToolsInstallDir();
     }
 
+version (IN_LLVM) { /* not needed */ } else
+{
     /**
      * set all members to null. Used if we detect a VS installation but end up
      * falling back on lld-link.exe
@@ -185,6 +188,7 @@ extern(C++) struct VSOptions
             return p.ptr;
         return "link.exe";
     }
+} // !IN_LLVM
 
     /**
     * retrieve path to the Microsoft compiler executable
@@ -278,6 +282,17 @@ private:
     {
         if (VSInstallDir is null)
             VSInstallDir = getenv("VSINSTALLDIR"w);
+
+version (IN_LLVM)
+{
+        if (VSInstallDir is null)
+        {
+            VSInstallDir = getenv("LDC_VSDIR"w);
+            // only use it if it's an existing directory
+            if (VSInstallDir && FileName.exists(VSInstallDir) != 2)
+                VSInstallDir = null;
+        }
+}
 
         if (VSInstallDir is null)
             VSInstallDir = detectVSInstallDirViaCOM();
@@ -521,9 +536,12 @@ public:
             }
         }
 
+version (IN_LLVM) {} else
+{
         // try mingw fallback relative to phobos library folder that's part of LIB
         if (auto p = FileName.searchPath(getenv("LIB"w), r"mingw\kernel32.lib"[], false))
             return FileName.path(p).ptr;
+}
 
         return null;
     }

@@ -63,6 +63,19 @@ int isConst(Expression e)
     case EXP.null_:
         return 0;
     case EXP.symbolOffset:
+version (IN_LLVM)
+{
+        import gen.dpragma : LDCPragma;
+
+        // We don't statically know anything about the address of a weak symbol
+        // if there is no offset. With an offset, we can at least say that it is
+        // non-zero.
+        SymOffExp soe = cast(SymOffExp) e;
+        if (soe.var.llvmInternal == LDCPragma.LLVMextern_weak && !soe.offset)
+        {
+            return 0;
+        }
+}
         return 2;
     default:
         return 0;

@@ -422,6 +422,10 @@ extern (C++) abstract class Type : ASTNode
     extern (C++) __gshared ClassDeclaration typeinfowild;
 
     extern (C++) __gshared TemplateDeclaration rtinfo;
+version (IN_LLVM)
+{
+    extern (C++) __gshared TemplateDeclaration rtinfoImpl;
+}
 
     extern (C++) __gshared Type[TMAX] basic;
 
@@ -2443,13 +2447,33 @@ extern (C++) abstract class Type : ASTNode
 
         // Allocate buffer on stack, fail over to using malloc()
         char[128] namebuf;
-        const namelen = 19 + size_t.sizeof * 3 + slice.length + 1;
-        auto name = namelen <= namebuf.length ? namebuf.ptr : cast(char*)Mem.check(malloc(namelen));
 
-        const length = sprintf(name, "_D%lluTypeInfo_%.*s6__initZ",
+        // Hash long symbol names
+        char* name;
+        int length;
+        if (IN_LLVM && global.params.hashThreshold && (slice.length > global.params.hashThreshold))
+        {
+            import std.digest.md;
+            auto md5hash = md5Of(slice);
+            auto hashedname = toHexString(md5hash);
+            static assert(hashedname.length < namebuf.length-30);
+            name = namebuf.ptr;
+            length = sprintf(name, "_D%lluTypeInfo_%.*s6__initZ",
+                9LU + hashedname.length, cast(int) hashedname.length, hashedname.ptr);
+        }
+        else
+        {
+        // else path is DDMD original:
+
+        const namelen = 19 + size_t.sizeof * 3 + slice.length + 1;
+        name = namelen <= namebuf.length ? namebuf.ptr : cast(char*)Mem.check(malloc(namelen));
+
+        length = sprintf(name, "_D%lluTypeInfo_%.*s6__initZ",
                 cast(ulong)(9 + slice.length), cast(int)slice.length, slice.ptr);
         //printf("%p %s, deco = %s, name = %s\n", this, toChars(), deco, name);
         assert(0 < length && length < namelen); // don't overflow the buffer
+
+        }
 
         auto id = Identifier.idPool(name, length);
 

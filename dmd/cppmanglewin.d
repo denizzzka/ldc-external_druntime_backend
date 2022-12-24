@@ -49,7 +49,20 @@ const(char)* toCppMangleMSVC(Dsymbol s)
 const(char)* cppTypeInfoMangleMSVC(Dsymbol s)
 {
     //printf("cppTypeInfoMangle(%s)\n", s.toChars());
+version (IN_LLVM)
+{
+    // Return the mangled name of the RTTI Type Descriptor.
+    // Reverse-engineered using a few C++ exception classes.
+    scope VisualCPPMangler v = new VisualCPPMangler(false, s.loc);
+    v.buf.writestring("\1??_R0?AV");
+    v.mangleIdent(s);
+    v.buf.writestring("@8");
+    return v.buf.extractChars();
+}
+else
+{
     assert(0);
+}
 }
 
 const(char)* toCppMangleDMC(Dsymbol s)
@@ -197,7 +210,10 @@ public:
             case Tuns64:
             case Tint128:
             case Tuns128:
+version (IN_LLVM) {} else
+{
             case Tfloat80:
+}
             case Twchar:
                 if (checkTypeSaved(type))
                     return;
@@ -250,10 +266,19 @@ public:
             buf.writeByte('N');
             break;
         case Tfloat80:
+version (IN_LLVM)
+{
+            // unlike DMD, LDC uses 64-bit `real` for Windows/MSVC targets,
+            // corresponding to MSVC++ long double
+            buf.writeByte('O');        // Visual C++ long double
+}
+else
+{
             if (flags & IS_DMC)
                 buf.writestring("_Z"); // DigitalMars long double
             else
                 buf.writestring("_T"); // Intel long double
+}
             break;
         case Tbool:
             buf.writestring("_N");
