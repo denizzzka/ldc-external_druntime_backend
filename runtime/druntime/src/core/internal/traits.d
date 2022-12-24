@@ -234,7 +234,7 @@ if (Ts.length > 0)
 template classInstanceAlignment(T)
 if (is(T == class))
 {
-    enum classInstanceAlignment = __traits(classInstanceAlignment, T);
+    alias classInstanceAlignment = maxAlignment!(void*, typeof(T.tupleof));
 }
 
 /// See $(REF hasElaborateMove, std,traits)

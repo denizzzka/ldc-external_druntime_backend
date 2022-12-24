@@ -26,8 +26,7 @@ nothrow @nogc:
     {
         import core.stdc.string : memcpy;
 
-        __gshared align(__traits(classInstanceAlignment, MallocGC))
-            ubyte[__traits(classInstanceSize, MallocGC)] buf;
+        __gshared ubyte[__traits(classInstanceSize, MallocGC)] buf;
 
         auto init = typeid(MallocGC).initializer();
         assert(init.length == buf.length);
