@@ -1,5 +1,3 @@
-project('druntime', ['d', 'c'])
-
 src = files(
     'src/core/bitop.d',
     'src/core/cpuid.d',
