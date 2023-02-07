@@ -98,6 +98,7 @@ extern llvm::FastMathFlags defaultFMF;
 void setDefaultMathOptions(llvm::TargetOptions &targetOptions);
 
 extern cl::opt<bool> fNoDiscardValueNames;
+extern cl::opt<bool> fNullPointerIsValid;
 
 // Arguments to -d-debug
 extern std::vector<std::string> debugArgs;
@@ -141,5 +142,9 @@ extern cl::opt<bool> enableDynamicCompile;
 extern cl::opt<bool> dynamicCompileTlsWorkaround;
 #else
 constexpr bool enableDynamicCompile = false;
+#endif
+
+#if LDC_LLVM_VER >= 1400
+extern bool enableOpaqueIRPointers;
 #endif
 }

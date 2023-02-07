@@ -135,7 +135,8 @@ llvm::FunctionType *DtoFunctionType(Type *type, IrFuncTy &irFty, Type *thistype,
 #else
     llvm::AttrBuilder attrs;
 #endif
-    attrs.addAttribute(LLAttribute::NonNull);
+    if (!opts::fNullPointerIsValid)
+      attrs.addAttribute(LLAttribute::NonNull);
     if (fd && fd->isCtorDeclaration()) {
       attrs.addAttribute(LLAttribute::Returned);
     }
@@ -149,7 +150,8 @@ llvm::FunctionType *DtoFunctionType(Type *type, IrFuncTy &irFty, Type *thistype,
 #else
     llvm::AttrBuilder attrs;
 #endif
-    attrs.addAttribute(LLAttribute::NonNull);
+    if (!opts::fNullPointerIsValid)
+      attrs.addAttribute(LLAttribute::NonNull);
     newIrFty.arg_nest = new IrFuncTyArg(nesttype, false, std::move(attrs));
     ++nextLLArgIdx;
   }
@@ -211,7 +213,8 @@ llvm::FunctionType *DtoFunctionType(Type *type, IrFuncTy &irFty, Type *thistype,
       auto ts = loweredDType->toBasetype()->isTypeStruct();
       if (ts && !ts->sym->members) {
         // opaque struct
-        attrs.addAttribute(LLAttribute::NonNull);
+        if (!opts::fNullPointerIsValid)
+          attrs.addAttribute(LLAttribute::NonNull);
 #if LDC_LLVM_VER >= 1100
         attrs.addAttribute(LLAttribute::NoUndef);
 #endif
@@ -681,7 +684,7 @@ void DtoDeclareFunction(FuncDeclaration *fdecl, const bool willDefine) {
   }
 
   func->setCallingConv(forceC ? gABI->callingConv(LINK::c)
-                              : gABI->callingConv(fdecl));
+                              : getCallingConvention(fdecl));
 
   IF_LOG Logger::cout() << "func = " << *func << std::endl;
 
@@ -1240,6 +1243,13 @@ void DtoDefineFunction(FuncDeclaration *fd, bool linkageAvailableExternally) {
     }
   }
   applyXRayAttributes(*fd, *func);
+  if (opts::fNullPointerIsValid) {
+#if LDC_LLVM_VER >= 1100
+    func->addFnAttr(LLAttribute::NullPointerIsValid);
+#else
+    func->addFnAttr("null-pointer-is-valid", "true");
+#endif
+  }
 
   llvm::BasicBlock *beginbb =
       llvm::BasicBlock::Create(gIR->context(), "", func);
@@ -1430,4 +1440,22 @@ DValue *DtoArgument(Parameter *fnarg, Expression *argexp) {
   }
 
   return arg;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+/* Gives precedence to user-specified calling convention using ldc.attributes.callingConvention,
+ * before querying the ABI.
+ */
+llvm::CallingConv::ID getCallingConvention(FuncDeclaration *fdecl)
+{
+  llvm::CallingConv::ID retval;
+
+  // First check if there is an override by a UDA
+  // If callconv is MaxID-1, then the "default" calling convention is specified. Behave as if no UDA was specified at all.
+  bool userOverride = hasCallingConventionUDA(fdecl, &retval);
+  if (userOverride && (retval != llvm::CallingConv::MaxID - 1))
+    return retval;
+
+  return gABI->callingConv(fdecl);
 }
