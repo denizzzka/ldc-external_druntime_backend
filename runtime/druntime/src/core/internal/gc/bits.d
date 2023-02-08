@@ -93,6 +93,27 @@ struct GCBits
     // return non-zero if bit already set
     size_t setLocked(size_t i) scope @trusted pure nothrow @nogc
     {
+        size_t dflt()()
+        {
+            auto pos = i >> BITS_SHIFT;
+            auto pdata = cast(shared)(data + pos);
+            auto mask = BITS_1 << (i & BITS_MASK);
+            auto state = *pdata;
+            if (state & mask)
+                return state;
+
+            import core.atomic;
+            auto newstate = state | mask;
+            while (!cas(pdata, state, newstate))
+            {
+                state = *pdata;
+                if (state & mask)
+                    return state;
+                newstate = state | mask;
+            }
+            return 0;
+        }
+
         version (GNU)
         {
             import gcc.builtins;
@@ -101,6 +122,10 @@ struct GCBits
             mixin("auto val = __atomic_fetch_or_" ~ size_t.sizeof.stringof[0]
                 ~ "(cast(shared)(data + pos), mask, 3);");
             return (val & mask) != 0;
+        }
+        else version (Druntime_FakeAtomic)
+        {
+            return dflt();
         }
         else version (LDC)
         {
@@ -134,23 +159,8 @@ struct GCBits
         }
         else
         {
-            auto pos = i >> BITS_SHIFT;
-            auto pdata = cast(shared)(data + pos);
-            auto mask = BITS_1 << (i & BITS_MASK);
-            auto state = *pdata;
-            if (state & mask)
-                return state;
 
-            import core.atomic;
-            auto newstate = state | mask;
-            while (!cas(pdata, state, newstate))
-            {
-                state = *pdata;
-                if (state & mask)
-                    return state;
-                newstate = state | mask;
-            }
-            return 0;
+        dflt();
         }
     }
 

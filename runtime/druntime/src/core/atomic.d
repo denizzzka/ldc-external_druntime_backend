@@ -195,6 +195,13 @@ T atomicFetchAdd(MemoryOrder ms = MemoryOrder.seq, T)(ref return scope T val, si
     if ((__traits(isIntegral, T) || is(T == U*, U)) && !is(T == shared))
 in (atomicValueIsProperlyAligned(val))
 {
+    version (Druntime_FakeAtomic)
+    {
+        val += mod;
+
+        return val;
+    }
+    else
     static if (is(T == U*, U))
         return cast(T)core.internal.atomic.atomicFetchAdd!ms(cast(size_t*)&val, mod * U.sizeof);
     else
@@ -224,6 +231,13 @@ T atomicFetchSub(MemoryOrder ms = MemoryOrder.seq, T)(ref return scope T val, si
     if ((__traits(isIntegral, T) || is(T == U*, U)) && !is(T == shared))
 in (atomicValueIsProperlyAligned(val))
 {
+    version (Druntime_FakeAtomic)
+    {
+        val -= mod;
+
+        return val;
+    }
+    else
     static if (is(T == U*, U))
         return cast(T)core.internal.atomic.atomicFetchSub!ms(cast(size_t*)&val, mod * U.sizeof);
     else
@@ -597,6 +611,9 @@ TailShared!T atomicOp(string op, T, V1)(ref shared T val, V1 mod) pure nothrow @
     if (__traits(compiles, mixin("*cast(T*)&val" ~ op ~ "mod")))
 in (atomicValueIsProperlyAligned(val))
 {
+    version (Druntime_FakeAtomic)
+        enum suitedForLLVMAtomicRmw = false;
+    else
     version (LDC)
     {
         import ldc.intrinsics;
