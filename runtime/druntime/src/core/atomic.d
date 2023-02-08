@@ -594,6 +594,8 @@ void atomicFence(MemoryOrder order = MemoryOrder.seq)() pure nothrow @nogc @safe
  */
 void pause() pure nothrow @nogc @safe
 {
+    version (Druntime_FakeAtomic) {}
+    else
     core.internal.atomic.pause();
 }
 
