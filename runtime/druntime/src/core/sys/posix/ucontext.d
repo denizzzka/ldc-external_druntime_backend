@@ -618,6 +618,9 @@ version (linux)
         {
             alias c_ulong[32] __riscv_mc_gp_state;
 
+            version (D_HardFloat)
+            {
+
             struct __riscv_mc_f_ext_state
             {
                 uint[32] __f;
@@ -643,12 +646,14 @@ version (linux)
                 __riscv_mc_d_ext_state __d;
                 __riscv_mc_q_ext_state __q;
             }
+
+            }
         }
 
         struct mcontext_t
         {
             __riscv_mc_gp_state __gregs;
-            __riscv_mc_fp_state __fpregs;
+            version (D_HardFloat) __riscv_mc_fp_state __fpregs;
         }
 
         struct ucontext_t
