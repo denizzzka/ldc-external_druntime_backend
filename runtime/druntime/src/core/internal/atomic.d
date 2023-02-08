@@ -10,6 +10,8 @@
 
 module core.internal.atomic;
 
+version (Druntime_FakeAtomic) {} else:
+
 import core.atomic : MemoryOrder, has128BitCAS;
 
 version (LDC)

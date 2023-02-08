@@ -71,6 +71,11 @@ enum MemoryOrder
 T atomicLoad(MemoryOrder ms = MemoryOrder.seq, T)(ref return scope const T val) pure nothrow @nogc @trusted
     if (!is(T == shared U, U) && !is(T == shared inout U, U) && !is(T == shared const U, U))
 {
+    version (Druntime_FakeAtomic)
+    {
+        return cast(T) val;
+    }
+    else
     static if (__traits(isFloating, T))
     {
         alias IntTy = IntForFloat!T;
@@ -137,6 +142,11 @@ void atomicStore(MemoryOrder ms = MemoryOrder.seq, T, V)(ref T val, V newval) pu
         T arg = newval;
     }
 
+    version (Druntime_FakeAtomic)
+    {
+        val = arg;
+    }
+    else
     static if (__traits(isFloating, T))
     {
         alias IntTy = IntForFloat!T;
@@ -303,6 +313,17 @@ in (atomicPtrIsProperlyAligned(here), "Argument `here` is not properly aligned")
  * Returns:
  *  true if the store occurred, false if not.
  */
+version (Druntime_FakeAtomic)
+bool cas(T, V1, V2)(T* here, V1 ifThis, V2 writeThis) pure nothrow @nogc @trusted
+{
+  if(*here != ifThis)
+    return false;
+
+  *here = writeThis;
+
+  return true;
+}
+else
 template cas(MemoryOrder succ = MemoryOrder.seq, MemoryOrder fail = MemoryOrder.seq)
 {
     /// Compare-and-set for non-shared values
