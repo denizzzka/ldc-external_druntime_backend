@@ -1606,6 +1606,8 @@ in (fn)
                 enum int j = i;
                 asm pure nothrow @nogc { (store ~ " s"~j.stringof~", %0") : "=m" (regs[i]); }
             }}
+
+            version (D_HardFloat)
             static foreach (i; 0 .. 12)
             {{
                 enum int j = i;
