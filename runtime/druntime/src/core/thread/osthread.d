@@ -1598,9 +1598,12 @@ in (fn)
             else version (RISCV64) enum store = "sd";
             else static assert(0);
 
+            version (D_HardFloat)  enum regs_len = 24;
+            else                   enum regs_len = 12;
+
             // Callee-save registers, according to RISCV Calling Convention
             // https://github.com/riscv-non-isa/riscv-elf-psabi-doc/blob/master/riscv-cc.adoc
-            size_t[24] regs = void;
+            size_t[regs_len] regs = void;
             static foreach (i; 0 .. 12)
             {{
                 enum int j = i;
