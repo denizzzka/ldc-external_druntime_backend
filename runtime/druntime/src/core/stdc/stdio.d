@@ -348,7 +348,21 @@ else version (CRuntime_UClibc)
 }
 else version (FreeStanding)
 {
-    //~ public import external.libc.stdio_;
+    enum
+    {
+        ///
+        BUFSIZ       = 4096,
+        ///
+        EOF          = -1,
+        ///
+        FOPEN_MAX    = 16,
+        ///
+        FILENAME_MAX = 4095,
+        ///
+        TMP_MAX      = 238328,
+        ///
+        L_tmpnam     = 20
+    }
 }
 else version (WASI)
 {
