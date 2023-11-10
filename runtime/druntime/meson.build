@@ -48,6 +48,7 @@ src = files(
     'src/core/thread/package.d',
     'src/core/stdc/fenv.d',
     'src/core/stdc/errno.d',
+    'src/core/stdc/stdarg.d',
     'src/core/stdc/stdint.d',
     'src/core/stdc/stdio.d',
     'src/core/stdc/wchar_.d',
