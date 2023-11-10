@@ -354,7 +354,7 @@ void finiSections() nothrow @nogc
  */
 version (FreeStanding)
 {
-    import external.rt.sections : initTLSRanges;
+    extern(D) void[] initTLSRanges() nothrow @nogc;
 }
 else version (UseELF)
 void[] initTLSRanges() nothrow @nogc
@@ -371,7 +371,7 @@ else
 
 version (FreeStanding)
 {
-    public import external.rt.sections : finiTLSRanges;
+    extern(D) void finiTLSRanges(void[] rng) nothrow @nogc;
 }
 else
 void finiTLSRanges(void[] rng) nothrow @nogc
