@@ -72,16 +72,4 @@ shared static this()
 
         PTHREAD_STACK_MIN = cast(size_t)sysconf(_SC_THREAD_STACK_MIN);
     }
-    else version (DruntimeAbstractRt)
-    {
-        import external.core.memory : PageSize;
-
-        pageSize = PageSize;
-    }
-    else
-    {
-        static assert(0, "unimplemented");
-    }
-
-    assert(pageSize);
 }
