@@ -519,7 +519,7 @@ struct ModuleGroup
         {
             version (FreeStanding)
             {
-                import external.rt.sections : ctorsDtorsWarning;
+                import rt.sections_freestanding : ctorsDtorsWarning;
 
                 ctorsDtorsWarning();
             }

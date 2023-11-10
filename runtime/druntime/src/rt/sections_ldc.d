@@ -333,7 +333,7 @@ void initSections() nothrow @nogc
     }
     else version (FreeStanding)
     {
-        import external.rt.sections : fillGlobalSectionGroup;
+        extern(D) void fillGlobalSectionGroup(ref SectionGroup gsg) nothrow @nogc;
 
         fillGlobalSectionGroup(globalSectionGroup);
     }
