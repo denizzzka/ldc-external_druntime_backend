@@ -2053,6 +2053,10 @@ private size_t _clockTypeIdx(ClockType clockType)
     assert(0);
 }
 
+version (FreeStanding)
+{
+    extern(C) long currTicks() @trusted nothrow @nogc;
+}
 
 /++
     alias for $(D MonoTimeImpl) instantiated with $(D ClockType.normal). This is
@@ -2210,8 +2214,6 @@ struct MonoTimeImpl(ClockType clockType)
         }
         else version (FreeStanding)
         {
-            extern(C) long currTicks() @trusted nothrow @nogc;
-
             return MonoTimeImpl(currTicks);
         }
     }
