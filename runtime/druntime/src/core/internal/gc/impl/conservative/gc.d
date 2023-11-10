@@ -1403,17 +1403,18 @@ class ConservativeGC : GC
 
 /* ============================ Gcx =============================== */
 
-version (FreeStanding)
-{
-    import core.memory : pageSize;
-
-    enum PAGESIZE = pageSize;
-}
-else
 enum
 {   PAGESIZE =    4096,
 }
 
+version (FreeStanding)
+debug
+shared static this()
+{
+    import core.memory : pageSize;
+
+    assert(PAGESIZE == pageSize);
+}
 
 enum Bins : ubyte
 {
