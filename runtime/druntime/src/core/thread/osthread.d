@@ -222,7 +222,7 @@ else
  * in the following example.
  */
 version (FreeStanding)
-    extern class Thread;
+    public import external.core.thread: Thread;
 else
 class Thread : ThreadBase
 {
