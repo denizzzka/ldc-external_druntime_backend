@@ -2093,7 +2093,6 @@ else version (Haiku)
 }
 else version (FreeStanding)
 {
-    //~ public import external.libc.errno;
 }
 else version (WASI)
 {
