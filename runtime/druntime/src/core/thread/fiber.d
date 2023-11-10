@@ -16,6 +16,8 @@ import core.thread.threadgroup;
 import core.thread.types;
 import core.thread.context;
 
+import core.memory : pageSize;
+
 version (OSX)
     version = Darwin;
 else version (iOS)
@@ -784,7 +786,7 @@ class Fiber
         version (X86_64)
             // libunwind on macOS 11 now requires more stack space than 16k, so
             // default to a larger stack size. This is only applied to X86 as
-            // the PAGESIZE is still 4k, however on AArch64 it is 16k.
+            // the pageSize is still 4k, however on AArch64 it is 16k.
             enum defaultStackPages = 8;
         else
             enum defaultStackPages = 4;
@@ -807,8 +809,8 @@ class Fiber
      * In:
      *  fn must not be null.
      */
-    this( void function() fn, size_t sz = PAGESIZE * defaultStackPages,
-          size_t guardPageSize = PAGESIZE ) nothrow
+    this( void function() fn, size_t sz = pageSize * defaultStackPages,
+          size_t guardPageSize = pageSize ) nothrow
     in
     {
         assert( fn );
@@ -835,8 +837,8 @@ class Fiber
      * In:
      *  dg must not be null.
      */
-    this( void delegate() dg, size_t sz = PAGESIZE * defaultStackPages,
-          size_t guardPageSize = PAGESIZE ) nothrow
+    this( void delegate() dg, size_t sz = pageSize * defaultStackPages,
+          size_t guardPageSize = pageSize ) nothrow
     {
         allocStack( sz, guardPageSize );
         reset( cast(void delegate() const) dg );
@@ -1158,16 +1160,19 @@ private:
     //
     Callable            m_call;
     bool                m_isRunning;
+    version (LDC)
+    {
+        // Unconditionally add this field, that is only used with version(CheckFiberMigration),
+        // such that version(SupportSanitizers) does not change the ABI.
+        // (what is needed is version(SupportSanitizers_ABI || CheckFiberMigration))
+        // The field is positioned after another bool, using up alignment padding space.
+        bool m_allowMigration;
+    }
     Throwable           m_unhandled;
     State               m_state;
 
     // Set first time switchIn called to indicate this Fiber's Thread
     Thread              m_curThread;
-
-    version (CheckFiberMigration)
-    {
-        bool m_allowMigration;
-    }
 
     version (SjLj_Exceptions)
     {
@@ -1190,9 +1195,9 @@ private:
     }
     do
     {
-        // adjust alloc size to a multiple of PAGESIZE
-        sz += PAGESIZE - 1;
-        sz -= sz % PAGESIZE;
+        // adjust alloc size to a multiple of pageSize
+        sz += pageSize - 1;
+        sz -= sz % pageSize;
 
         // NOTE: This instance of Thread.Context is dynamic so Fiber objects
         //       can be collected by the GC so long as no user level references

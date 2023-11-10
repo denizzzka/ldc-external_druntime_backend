@@ -1,6 +1,6 @@
 #!/usr/bin/env dub
 /+dub.sdl:
-dependency "dmd" path="../.."
+dependency "dmd" path="../../.."
 +/
 /* This file contains an example on how to use the transitive visitor.
    It implements a visitor which computes the average function length from
@@ -10,7 +10,7 @@ dependency "dmd" path="../.."
 module examples.avg;
 
 import dmd.astbase;
-import dmd.errors;
+import dmd.errorsink;
 import dmd.parse;
 import dmd.target;
 import dmd.transitivevisitor;
@@ -53,15 +53,16 @@ void main()
     Id.initialize();
     global._init();
     target.os = Target.OS.linux;
-    target.is64bit = (size_t.sizeof == 8);
+    target.isX86_64 = (size_t.sizeof == 8);
     global.params.useUnitTests = true;
     ASTBase.Type._init();
 
     auto id = Identifier.idPool(fname);
     auto m = new ASTBase.Module(&(fname.dup)[0], id, false, false);
     auto input = readText(fname);
+    input ~= '\0';
 
-    scope p = new Parser!ASTBase(m, input, false);
+    scope p = new Parser!ASTBase(m, input, false, new ErrorSinkStderr(), null, false);
     p.nextToken();
     m.members = p.parseModule();
 

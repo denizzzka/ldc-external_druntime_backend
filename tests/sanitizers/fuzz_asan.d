@@ -2,8 +2,9 @@
 
 // REQUIRES: Fuzzer, ASan
 
-// See https://github.com/ldc-developers/ldc/issues/2222 for %disable_fp_elim
-// RUN: %ldc -g -fsanitize=address,fuzzer %disable_fp_elim %s -of=%t%exe
+// See https://github.com/ldc-developers/ldc/issues/2222 for -frame-pointer=all
+// See https://github.com/ldc-developers/ldc/pull/4328 for -fsanitize-address-use-after-return=never
+// RUN: %ldc -g -fsanitize=address,fuzzer -fsanitize-address-use-after-return=never -frame-pointer=all %s -of=%t%exe
 // RUN: not %t%exe 2>&1 | FileCheck %s
 
 bool FuzzMe(ubyte* data, size_t dataSize)
@@ -12,7 +13,7 @@ bool FuzzMe(ubyte* data, size_t dataSize)
            data[0] == 'F' &&
            data[1] == 'U' &&
            data[2] == 'Z' &&
-    // CHECK: stack-buffer-overflow
+    // CHECK: ERROR: AddressSanitizer: stack-buffer-overflow
     // CHECK-NEXT: READ of size 1
     // CHECK-NEXT: #0 {{.*}} in {{.*fuzz_asan6FuzzMe.*}} {{.*}}fuzz_asan.d:
     // FIXME, debug line info is wrong (Github issue #2090). Once fixed, add [[@LINE+1]]

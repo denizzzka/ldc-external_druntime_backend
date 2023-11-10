@@ -25,6 +25,16 @@
 #include "llvm/Support/VirtualFileSystem.h"
 #endif
 
+#if LDC_LLVM_VER >= 1400
+#include "llvm/Transforms/Instrumentation/AddressSanitizerOptions.h"
+#else
+namespace llvm {
+// Declaring this simplifies code later, but the option is never used with LLVM
+// <= 13.
+enum class AsanDetectStackUseAfterReturnMode { Never, Runtime, Always };
+}
+#endif
+
 namespace {
 
 using namespace opts;
@@ -85,6 +95,14 @@ void parseFSanitizeCoverageParameter(llvm::StringRef name,
   else if (name == "trace-gep") {
     opts.TraceGep = true;
   }
+#if LDC_LLVM_VER >= 1400
+  else if (name == "trace-loads") {
+    opts.TraceLoads = true;
+  }
+  else if (name == "trace-stores") {
+    opts.TraceStores = true;
+  }
+#endif
   else if (name == "8bit-counters") {
     opts.Use8bitCounters = true;
   }
@@ -120,6 +138,25 @@ void parseFSanitizeCoverageCmdlineParameter(llvm::SanitizerCoverageOptions &opts
 } // anonymous namespace
 
 namespace opts {
+
+cl::opt<llvm::AsanDetectStackUseAfterReturnMode> fSanitizeAddressUseAfterReturn(
+    "fsanitize-address-use-after-return", cl::ZeroOrMore,
+    cl::desc("Select the mode of detecting stack use-after-return (UAR) in "
+             "AddressSanitizer: never | runtime (default) | always"),
+    cl::init(llvm::AsanDetectStackUseAfterReturnMode::Runtime),
+    cl::values(
+        clEnumValN(
+            llvm::AsanDetectStackUseAfterReturnMode::Never, "never",
+            "Completely disables detection of UAR errors (reduces code size)."),
+        clEnumValN(llvm::AsanDetectStackUseAfterReturnMode::Runtime, "runtime",
+                   "Adds the code for detection, but it can be disabled via the "
+                   "runtime environment "
+                   "(ASAN_OPTIONS=detect_stack_use_after_return=0). Requires "
+                   "druntime support."),
+        clEnumValN(
+            llvm::AsanDetectStackUseAfterReturnMode::Always, "always",
+            "Enables detection of UAR errors in all cases. (reduces code size, "
+            "but not as much as never). Requires druntime support.")));
 
 SanitizerBits enabledSanitizers = 0;
 
@@ -169,12 +206,8 @@ void initializeSanitizerOptionsFromCmdline()
 
   if (isAnySanitizerEnabled() && !fSanitizeBlacklist.empty()) {
     std::string loadError;
-    sanitizerBlacklist =
-      llvm::SpecialCaseList::create(fSanitizeBlacklist,
-#if LDC_LLVM_VER >= 1000
-                                    *llvm::vfs::getRealFileSystem(),
-#endif
-                                    loadError);
+    sanitizerBlacklist = llvm::SpecialCaseList::create(
+        fSanitizeBlacklist, *llvm::vfs::getRealFileSystem(), loadError);
     if (!sanitizerBlacklist)
       error(Loc(), "-fsanitize-blacklist error: %s", loadError.c_str());
   }
@@ -200,7 +233,7 @@ bool functionIsInSanitizerBlacklist(FuncDeclaration *funcDecl) {
     return false;
 
   auto funcName = mangleExact(funcDecl);
-  auto fileName = funcDecl->loc.filename;
+  auto fileName = funcDecl->loc.filename();
 
   // TODO: LLVM supports sections (e.g. "[address]") in the blacklist file to
   // only blacklist a function for a particular sanitizer. We could make use of

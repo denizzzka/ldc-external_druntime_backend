@@ -18,27 +18,21 @@ commonSteps: &commonSteps
             fi
             apt-get -q update
             apt-get -yq install \
-              git-core cmake ninja-build $gcc_pkg \
+              git-core $gcc_pkg \
               zlib1g-dev $libcurl_pkg curl gdb python3 python3-pip tzdata unzip zip \
               $EXTRA_APT_PACKAGES
-          else
             # Download & extract CMake
-            curl -fL --retry 3 --max-time 300 -o cmake.tar.gz https://github.com/Kitware/CMake/releases/download/v3.20.3/cmake-3.20.3-macos-universal.tar.gz
+            curl -fL --retry 3 --max-time 300 -o cmake.tar.gz https://github.com/Kitware/CMake/releases/download/v3.27.1/cmake-3.27.1-linux-x86_64.tar.gz
             mkdir cmake
-            tar -xf cmake.tar.gz --strip 3 -C cmake
+            tar -xf cmake.tar.gz --strip 1 -C cmake
             rm cmake.tar.gz
             # Download & extract Ninja
-            curl -fL --retry 3 --max-time 60 -O https://github.com/ninja-build/ninja/releases/download/v1.10.2/ninja-mac.zip
+            curl -fL --retry 3 --max-time 60 -O https://github.com/symmetryinvestments/ninja/releases/download/v1.11.1-sym1/ninja-linux.zip
             mkdir ninja
-            tar -xf ninja-mac.zip -C ninja
-            rm ninja-mac.zip
-            # Download & extract LDC-flavoured LLVM with enabled assertions
-            curl -fL --retry 3 --max-time 300 -o llvm.tar.xz https://github.com/ldc-developers/llvm-project/releases/download/ldc-v$LLVM_VERSION/llvm-$LLVM_VERSION-osx-x86_64-withAsserts.tar.xz
-            mkdir llvm
-            tar -xf llvm.tar.xz --strip 1 -C llvm
-            rm llvm.tar.xz
-            # Add CMake, Ninja and LLVM to PATH for future steps
-            echo "export PATH=$PWD/cmake/bin:$PWD/ninja:$PWD/llvm/bin:$PATH" >> $BASH_ENV
+            unzip ninja-linux.zip -d ninja
+            rm ninja-linux.zip
+            # Add CMake and Ninja to PATH for future steps
+            echo "export PATH=$PWD/cmake/bin:$PWD/ninja:$PATH" >> $BASH_ENV
           fi
           # Install lit
           python3 --version
@@ -68,12 +62,7 @@ commonSteps: &commonSteps
             -DD_COMPILER=$PWD/../host-ldc/bin/ldmd2 \
             -DLDC_LINK_MANUALLY=OFF \
             $EXTRA_CMAKE_FLAGS
-          # Work around out-of-memory errors - retry once with parallelization and one last time serially
-          targets='all ldc2-unittest all-test-runners'
-          for i in {1..2}; do
-            ninja -j$PARALLELISM -k0 $targets && break || true
-          done
-          ninja -j1 $targets
+          ninja -j$PARALLELISM obj/ldc2.o all ldc2-unittest all-test-runners
           bin/ldc2 -version
     - run:
         name: Run LDC D unittests
@@ -100,54 +89,32 @@ commonSteps: &commonSteps
 
 version: 2
 jobs:
-  Ubuntu-18.04-multilib-rtSanitizers:
+  Ubuntu-20.04-multilib-rtSanitizers:
     <<: *commonSteps
     docker:
-      - image: ubuntu:18.04
+      - image: ubuntu:20.04
+    resource_class: large
     environment:
-      - PARALLELISM: 2
+      - PARALLELISM: 4
       - CI_OS: linux
-      - EXTRA_APT_PACKAGES: llvm-9-dev libclang-common-9-dev
+      - EXTRA_APT_PACKAGES: llvm-11-dev libclang-common-11-dev
       - HOST_LDC_VERSION: 1.24.0
       - EXTRA_CMAKE_FLAGS: "-DMULTILIB=ON -DRT_SUPPORT_SANITIZERS=ON -DBUILD_LTO_LIBS=ON"
   Ubuntu-20.04-sharedLibsOnly-gdmd:
     <<: *commonSteps
     docker:
       - image: ubuntu:20.04
+    resource_class: large
     environment:
-      - PARALLELISM: 2
+      - PARALLELISM: 4
       - CI_OS: linux
-      - EXTRA_APT_PACKAGES: gdmd llvm-dev libclang-common-10-dev
+      - EXTRA_APT_PACKAGES: gdmd llvm-11-dev libclang-common-11-dev
       - HOST_LDC_VERSION: 1.24.0
       - EXTRA_CMAKE_FLAGS: "-DBUILD_SHARED_LIBS=ON -DBUILD_LTO_LIBS=ON -DD_COMPILER=gdmd -DLDC_LINK_MANUALLY=ON"
-  macOS-x64:
-    <<: *commonSteps
-    macos:
-      xcode: "13.2.1"
-    environment:
-      - PARALLELISM: 4
-      - CI_OS: osx
-      - LLVM_VERSION: 14.0.3
-      - HOST_LDC_VERSION: 1.24.0
-      - EXTRA_CMAKE_FLAGS: "-DD_COMPILER_FLAGS=-gcc=/usr/bin/c++ -DBUILD_LTO_LIBS=ON"
-      - MACOSX_DEPLOYMENT_TARGET: 11.0 # silence `ld: warning: object file (…/libphobos2-ldc.a(adler32.c.o)) was built for newer macOS version (11.6) than being linked (11.0)`
-  macOS-x64-sharedLibsOnly:
-    <<: *commonSteps
-    macos:
-      xcode: "13.2.1"
-    environment:
-      - PARALLELISM: 4
-      - CI_OS: osx
-      - LLVM_VERSION: 14.0.3
-      - HOST_LDC_VERSION: 1.24.0
-      - EXTRA_CMAKE_FLAGS: "-DD_COMPILER_FLAGS=-gcc=/usr/bin/c++ -DBUILD_SHARED_LIBS=ON -DBUILD_LTO_LIBS=ON"
-      - MACOSX_DEPLOYMENT_TARGET: 11.0
 
 workflows:
   version: 2
   build:
     jobs:
-      - Ubuntu-18.04-multilib-rtSanitizers
+      - Ubuntu-20.04-multilib-rtSanitizers
       - Ubuntu-20.04-sharedLibsOnly-gdmd
-      - macOS-x64
-      - macOS-x64-sharedLibsOnly

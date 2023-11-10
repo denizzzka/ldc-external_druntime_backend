@@ -15,6 +15,7 @@
 #include "dmd/mtype.h"
 #include "dmd/target.h"
 #include "driver/cl_options.h"
+#include "driver/cl_options_instrumentation.h"
 #include "driver/linker.h"
 #include "gen/abi/abi.h"
 #include "gen/irstate.h"
@@ -58,6 +59,10 @@ llvm::Type *getRealType(const llvm::Triple &triple) {
 
   case Triple::riscv32:
   case Triple::riscv64:
+#if LDC_LLVM_VER >= 1600
+  case Triple::loongarch32:
+  case Triple::loongarch64:
+#endif // LDC_LLVM_VER >= 1600
     return LLType::getFP128Ty(ctx);
 
   default:
@@ -101,7 +106,7 @@ void Target::_init(const Param &params) {
   realType = getRealType(triple);
   realsize = gDataLayout->getTypeAllocSize(realType);
   realpad = realsize - gDataLayout->getTypeStoreSize(realType);
-  realalignsize = gDataLayout->getABITypeAlignment(realType);
+  realalignsize = gDataLayout->getABITypeAlign(realType).value();
   classinfosize = 0; // unused
   maxStaticDataSize = std::numeric_limits<unsigned long long>::max();
 
@@ -127,10 +132,8 @@ void Target::_init(const Param &params) {
   const llvm::StringRef archName = triple.getArchName();
   architectureName = {archName.size(), archName.data()};
 
-  is64bit = triple.isArch64Bit();
   isLP64 = gDataLayout->getPointerSizeInBits() == 64;
   run_noext = !triple.isOSWindows();
-  omfobj = false;
 
   if (isMSVC) {
     obj_ext = {3, "obj"};
@@ -210,7 +213,7 @@ unsigned Target::alignsize(Type *type) {
   if (type->ty == TY::Tvoid) {
     return 1;
   }
-  return gDataLayout->getABITypeAlignment(DtoType(type));
+  return gDataLayout->getABITypeAlign(DtoType(type)).value();
 }
 
 /******************************
@@ -307,6 +310,11 @@ Expression *Target::getTargetInfo(const char *name_, const Loc &loc) {
   if (name == "cppStd") {
     return IntegerExp::create(
         Loc(), static_cast<unsigned>(global.params.cplusplus), Type::tint32);
+  }
+
+  if (name == "CET") {
+    auto cet = opts::fCFProtection.getValue();
+    return IntegerExp::create(loc, static_cast<unsigned>(cet), Type::tint32);
   }
 
 #if LDC_LLVM_SUPPORTED_TARGET_SPIRV || LDC_LLVM_SUPPORTED_TARGET_NVPTX

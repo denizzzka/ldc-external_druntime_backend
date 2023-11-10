@@ -250,8 +250,8 @@ public:
     decl->ir->setDefined();
 
     // just forward aliases
-    if (decl->aliassym) {
-      Logger::println("alias sym");
+    if (decl->aliasTuple) {
+      Logger::println("aliasTuple");
       decl->toAlias()->accept(this);
       return;
     }
@@ -284,7 +284,9 @@ public:
 
   void visit(FuncDeclaration *decl) override {
     // don't touch function aliases, they don't contribute any new symbols
-    if (!decl->isFuncAliasDeclaration()) {
+    if (!decl->skipCodegen() && !decl->isFuncAliasDeclaration() &&
+        // skip fwd declarations (IR-declared lazily)
+        decl->fbody) {
       DtoDefineFunction(decl);
     }
   }
@@ -417,12 +419,23 @@ public:
         std::string arg = ("/DEFAULTLIB:\"" + name + "\"").str();
         gIR->addLinkerOption(llvm::StringRef(arg));
       } else {
-        size_t const n = name.size() + 3;
-        char *arg = static_cast<char *>(mem.xmalloc(n));
-        arg[0] = '-';
-        arg[1] = 'l';
-        memcpy(arg + 2, name.data(), name.size());
-        arg[n - 1] = 0;
+        const bool isStaticLib = name.endswith(".a");
+        const size_t nameLen = name.size();
+
+        char *arg = nullptr;
+        if (!isStaticLib) { // name => -lname
+          const size_t n = nameLen + 3;
+          arg = static_cast<char *>(mem.xmalloc(n));
+          arg[0] = '-';
+          arg[1] = 'l';
+          memcpy(arg + 2, name.data(), nameLen);
+          arg[n - 1] = 0;
+        } else {
+          arg = static_cast<char *>((mem.xmalloc(nameLen + 1)));
+          memcpy(arg, name.data(), nameLen);
+          arg[nameLen] = 0;
+        }
+
         global.params.linkswitches.push(arg);
 
         if (triple.isOSBinFormatMachO()) {

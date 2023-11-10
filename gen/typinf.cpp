@@ -58,14 +58,15 @@
 #include <cstdio>
 
 // in dmd/typinf.d:
-void genTypeInfo(Expression *e, const Loc &loc, Type *torig, Scope *sc);
+void genTypeInfo(Expression *e, const Loc &loc, Type *torig, Scope *sc, bool genObjCode = true);
 
 TypeInfoDeclaration *getOrCreateTypeInfoDeclaration(const Loc &loc, Type *forType) {
   IF_LOG Logger::println("getOrCreateTypeInfoDeclaration(): %s",
                          forType->toChars());
   LOG_SCOPE
 
-  genTypeInfo(nullptr, loc, forType, nullptr);
+  // the `genObjCode` parameter is unused by LDC
+  genTypeInfo(nullptr, loc, forType, nullptr, false);
 
   return forType->vtinfo;
 }
@@ -441,9 +442,8 @@ void buildTypeInfo(TypeInfoDeclaration *decl) {
     assert(isBuiltin && "existing global expected to be the init symbol of a "
                         "built-in TypeInfo");
   } else {
-    DtoType(decl->type);
-    TypeClass *tclass = decl->type->isTypeClass();
-    LLType *type = getIrType(tclass)->isClass()->getMemoryLLType();
+    TypeClass *tc = decl->type->isTypeClass();
+    LLType *type = getIrType(tc->sym->type, true)->isClass()->getMemoryLLType();
     // We need to keep the symbol mutable as the type is not declared as
     // immutable on the D side, and e.g. synchronized() can be used on the
     // implicit monitor.

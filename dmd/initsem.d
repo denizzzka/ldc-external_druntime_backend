@@ -1,7 +1,7 @@
 /**
  * Semantic analysis of initializers.
  *
- * Copyright:   Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright:   Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * Authors:     $(LINK2 https://www.digitalmars.com, Walter Bright)
  * License:     $(LINK2 https://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Source:      $(LINK2 https://github.com/dlang/dmd/blob/master/src/dmd/initsem.d, _initsem.d)
@@ -33,6 +33,7 @@ import dmd.id;
 import dmd.identifier;
 import dmd.importc;
 import dmd.init;
+import dmd.location;
 import dmd.mtype;
 import dmd.opover;
 import dmd.statement;
@@ -55,7 +56,7 @@ Expression toAssocArrayLiteral(ArrayInitializer ai)
     Expression e;
     //printf("ArrayInitializer::toAssocArrayInitializer()\n");
     //static int i; if (++i == 2) assert(0);
-    const dim = ai.value.dim;
+    const dim = ai.value.length;
     auto keys = new Expressions(dim);
     auto values = new Expressions(dim);
     for (size_t i = 0; i < dim; i++)
@@ -134,111 +135,19 @@ extern(C++) Initializer initializerSemantic(Initializer init, Scope* sc, ref Typ
             sd.size(i.loc);
             if (sd.sizeok != Sizeok.done)
                 return err();
-            const nfields = sd.nonHiddenFields();
-            //expandTuples for non-identity arguments?
-            auto elements = new Expressions(nfields);
-            auto elems = (*elements)[];
-            foreach (ref elem; elems)
-                elem = null;
 
-            // Run semantic for explicitly given initializers
-            // TODO: this part is slightly different from StructLiteralExp::semantic.
-            bool errors = false;
-            size_t fieldi = 0;
-            foreach (j, id; i.field[])
-            {
-                if (id)
-                {
-                    /* Determine `fieldi` that `id` matches
-                     */
-                    Dsymbol s = sd.search(i.loc, id);
-                    if (!s)
-                    {
-                        s = sd.search_correct(id);
-                        const initLoc = i.value[j].loc;
-                        if (s)
-                            error(initLoc, "`%s` is not a member of `%s`, did you mean %s `%s`?", id.toChars(), sd.toChars(), s.kind(), s.toChars());
-                        else
-                            error(initLoc, "`%s` is not a member of `%s`", id.toChars(), sd.toChars());
-                        return err();
-                    }
-                    s.checkDeprecated(i.loc, sc);
-                    s = s.toAlias();
-
-                    // Find out which field index `s` is
-                    for (fieldi = 0; 1; fieldi++)
-                    {
-                        if (fieldi >= nfields)
-                        {
-                            error(i.loc, "`%s.%s` is not a per-instance initializable field", sd.toChars(), s.toChars());
-                            return err();
-                        }
-                        if (s == sd.fields[fieldi])
-                            break;
-                    }
-                }
-                if (j >= nfields)
-                {
-                    error(i.value[j].loc, "too many initializers for `%s`", sd.toChars());
-                    return err();
-                }
-
-                VarDeclaration vd = sd.fields[fieldi];
-                if (elems[fieldi])
-                {
-                    error(i.value[j].loc, "duplicate initializer for field `%s`", vd.toChars());
-                    errors = true;
-                    elems[fieldi] = ErrorExp.get(); // for better diagnostics on multiple errors
-                    ++fieldi;
-                    continue;
-                }
-
-                // Check for @safe violations
-                if (vd.type.hasPointers)
-                {
-                    if ((!t.alignment.isDefault() && t.alignment.get() < target.ptrsize ||
-                         (vd.offset & (target.ptrsize - 1))))
-                    {
-                        if (sc.setUnsafe(false, i.value[j].loc,
-                            "field `%s.%s` cannot assign to misaligned pointers in `@safe` code", sd, vd))
-                        {
-                            errors = true;
-                            elems[fieldi] = ErrorExp.get(); // for better diagnostics on multiple errors
-                            ++fieldi;
-                            continue;
-                        }
-                    }
-                }
-
-                // Check for overlapping initializations (can happen with unions)
-                foreach (k, v2; sd.fields[0 .. nfields])
-                {
-                    if (vd.isOverlappedWith(v2) && elems[k])
-                    {
-                        error(elems[k].loc, "overlapping initialization for field `%s` and `%s`", v2.toChars(), vd.toChars());
-                        errors = true;
-                        continue;
-                    }
-                }
-
-                // Convert initializer to Expression `ex`
-                assert(sc);
-                auto tm = vd.type.addMod(t.mod);
-                auto iz = i.value[j].initializerSemantic(sc, tm, needInterpret);
-                auto ex = iz.initializerToExpression(null, (sc.flags & SCOPE.Cfile) != 0);
-                if (ex.op == EXP.error)
-                {
-                    errors = true;
-                    elems[fieldi] = ErrorExp.get(); // for better diagnostics on multiple errors
-                    ++fieldi;
-                    continue;
-                }
-
+        Expression getExp(size_t j, Type fieldType)
+        {
+            // Convert initializer to Expression `ex`
+            auto tm = fieldType.addMod(t.mod);
+            auto iz = i.value[j].initializerSemantic(sc, tm, needInterpret);
+            auto ex = iz.initializerToExpression(null, (sc.flags & SCOPE.Cfile) != 0);
+            if (ex.op != EXP.error)
                 i.value[j] = iz;
-                elems[fieldi] = doCopyOrMove(sc, ex);
-                ++fieldi;
-            }
-            if (errors)
+            return ex;
+        }
+            auto elements = resolveStructLiteralNamedArgs(sd, t, sc, i.loc, i.field[], &getExp, (size_t j) => i.value[j].loc);
+            if (!elements)
                 return err();
 
             // Make a StructLiteralExp out of elements[]
@@ -249,7 +158,7 @@ extern(C++) Initializer initializerSemantic(Initializer init, Scope* sc, ref Typ
             auto ie = new ExpInitializer(i.loc, sle);
             return ie.initializerSemantic(sc, t, needInterpret);
         }
-        else if ((t.ty == Tdelegate || t.isPtrToFunction()) && i.value.dim == 0)
+        else if ((t.ty == Tdelegate || t.isPtrToFunction()) && i.value.length == 0)
         {
             const tok = (t.ty == Tdelegate) ? TOK.delegate_ : TOK.function_;
             /* Rewrite as empty delegate literal { }
@@ -315,7 +224,7 @@ extern(C++) Initializer initializerSemantic(Initializer init, Scope* sc, ref Typ
         }
         i.type = t;
         length = 0;
-        for (size_t j = 0; j < i.index.dim; j++)
+        for (size_t j = 0; j < i.index.length; j++)
         {
             Expression idx = i.index[j];
             if (idx)
@@ -350,7 +259,7 @@ extern(C++) Initializer initializerSemantic(Initializer init, Scope* sc, ref Typ
                 TupleExp te = ei.exp.isTupleExp();
                 i.index.remove(j);
                 i.value.remove(j);
-                for (size_t k = 0; k < te.exps.dim; ++k)
+                for (size_t k = 0; k < te.exps.length; ++k)
                 {
                     Expression e = (*te.exps)[k];
                     i.index.insert(j + k, cast(Expression)null);
@@ -475,7 +384,7 @@ extern(C++) Initializer initializerSemantic(Initializer init, Scope* sc, ref Typ
         {
             return i; // Failed, suppress duplicate error messages
         }
-        if (i.exp.type.isTypeTuple() && i.exp.type.isTypeTuple().arguments.dim == 0)
+        if (i.exp.type.isTypeTuple() && i.exp.type.isTypeTuple().arguments.length == 0)
         {
             Type et = i.exp.type;
             i.exp = new TupleExp(i.exp.loc, new Expressions());
@@ -638,7 +547,7 @@ extern(C++) Initializer initializerSemantic(Initializer init, Scope* sc, ref Typ
                 uinteger_t dim2 = dim1;
                 if (auto ale = i.exp.isArrayLiteralExp())
                 {
-                    dim2 = ale.elements ? ale.elements.dim : 0;
+                    dim2 = ale.elements ? ale.elements.length : 0;
                 }
                 else if (auto se = i.exp.isSliceExp())
                 {
@@ -673,10 +582,13 @@ extern(C++) Initializer initializerSemantic(Initializer init, Scope* sc, ref Typ
 
     Initializer visitC(CInitializer ci)
     {
-        //printf("CInitializer::semantic() (%s) %s\n", t.toChars(), ci.toChars());
+        //printf("CInitializer::semantic() tx: %s t: %s ci: %s\n", (tx ? tx.toChars() : "".ptr), t.toChars(), ci.toChars());
         /* Rewrite CInitializer into ExpInitializer, ArrayInitializer, or StructInitializer
          */
         t = t.toBasetype();
+
+        if (auto tv = t.isTypeVector())
+            t = tv.basetype;
 
         /* If `{ expression }` return the expression initializer
          */
@@ -858,13 +770,15 @@ extern(C++) Initializer initializerSemantic(Initializer init, Scope* sc, ref Typ
                 return err();
             }
             const nfields = sd.fields.length;
-
             size_t fieldi = 0;
 
+        Loop1:
             for (size_t index = 0; index < ci.initializerList.length; )
             {
-                auto di = ci.initializerList[index];
-                auto dlist = di.designatorList;
+                CInitializer cprev;
+             L1:
+                DesigInit di = ci.initializerList[index];
+                Designators* dlist = di.designatorList;
                 if (dlist)
                 {
                     const length = (*dlist).length;
@@ -887,14 +801,34 @@ extern(C++) Initializer initializerSemantic(Initializer init, Scope* sc, ref Typ
                             si.addInit(id, di.initializer);
                             ++fieldi;
                             ++index;
-                            break;
+                            continue Loop1;
                         }
                     }
+                    if (cprev)
+                    {
+                        /* The peeling didn't work, so unpeel it
+                         */
+                        ci = cprev;
+                        di = ci.initializerList[index];
+                        goto L2;
+                    }
+                    error(ci.loc, "`.%s` is not a field of `%s`\n", id.toChars(), sd.toChars());
+                    return err();
                 }
                 else
                 {
                     if (fieldi == nfields)
                         break;
+                    if (index == 0 && ci.initializerList.length == 1 && di.initializer.isCInitializer())
+                    {
+                        /* Try peeling off this set of { } and see if it works
+                         */
+                        cprev = ci;
+                        ci = di.initializer.isCInitializer();
+                        goto L1;
+                    }
+
+                L2:
                     VarDeclaration field;
                     while (1)   // skip field if it overlaps with previously seen fields
                     {
@@ -1042,22 +976,19 @@ extern(C++) Initializer initializerSemantic(Initializer init, Scope* sc, ref Typ
             return initializerSemantic(ai, sc, tx, needInterpret);
         }
         else if (ExpInitializer ei = isBraceExpression())
+        {
             return visitExp(ei);
+        }
         else
         {
-            assert(0);
+            error(ci.loc, "unrecognized C initializer `%s`", ci.toChars());
+            return err();
         }
     }
 
-    final switch (init.kind)
-    {
-        case InitKind.void_:   return visitVoid  (init.isVoidInitializer());
-        case InitKind.error:   return visitError (init.isErrorInitializer());
-        case InitKind.struct_: return visitStruct(init.isStructInitializer());
-        case InitKind.array:   return visitArray (init.isArrayInitializer());
-        case InitKind.exp:     return visitExp   (init.isExpInitializer());
-        case InitKind.C_:      return visitC     (init.isCInitializer());
-    }
+    mixin VisitInitializer!Initializer visit;
+    auto result = visit.VisitInitializer(init);
+    return (result !is null) ? result : new ErrorInitializer();
 }
 
 /***********************
@@ -1094,9 +1025,9 @@ Initializer inferType(Initializer init, Scope* sc)
         Expressions* values;
         if (init.isAssociativeArray())
         {
-            keys = new Expressions(init.value.dim);
-            values = new Expressions(init.value.dim);
-            for (size_t i = 0; i < init.value.dim; i++)
+            keys = new Expressions(init.value.length);
+            values = new Expressions(init.value.length);
+            for (size_t i = 0; i < init.value.length; i++)
             {
                 Expression e = init.index[i];
                 if (!e)
@@ -1119,9 +1050,9 @@ Initializer inferType(Initializer init, Scope* sc)
         }
         else
         {
-            auto elements = new Expressions(init.value.dim);
+            auto elements = new Expressions(init.value.length);
             elements.zero();
-            for (size_t i = 0; i < init.value.dim; i++)
+            for (size_t i = 0; i < init.value.length; i++)
             {
                 assert(!init.index[i]); // already asserted by isAssociativeArray()
                 Initializer iz = init.value[i];
@@ -1211,15 +1142,9 @@ Initializer inferType(Initializer init, Scope* sc)
         return new ErrorInitializer();
     }
 
-    final switch (init.kind)
-    {
-        case InitKind.void_:   return visitVoid  (init.isVoidInitializer());
-        case InitKind.error:   return visitError (init.isErrorInitializer());
-        case InitKind.struct_: return visitStruct(init.isStructInitializer());
-        case InitKind.array:   return visitArray (init.isArrayInitializer());
-        case InitKind.exp:     return visitExp   (init.isExpInitializer());
-        case InitKind.C_:      return visitC     (init.isCInitializer());
-    }
+    mixin VisitInitializer!Initializer visit;
+    auto result = visit.VisitInitializer(init);
+    return (result !is null) ? result : new ErrorInitializer();
 }
 
 /***********************
@@ -1300,9 +1225,9 @@ extern (C++) Expression initializerToExpression(Initializer init, Type itype = n
         {
             /* Calculate the length of the array literal
              */
-            edim = cast(uint)init.value.dim;
+            edim = cast(uint)init.value.length;
             size_t j = 0;
-            foreach (i; 0 .. init.value.dim)
+            foreach (i; 0 .. init.value.length)
             {
                 if (auto e = init.index[i])
                 {
@@ -1325,7 +1250,7 @@ extern (C++) Expression initializerToExpression(Initializer init, Type itype = n
         auto elements = new Expressions(edim);
         elements.zero();
         size_t j = 0;
-        foreach (i; 0 .. init.value.dim)
+        foreach (i; 0 .. init.value.length)
         {
             if (auto e = init.index[i])
                 j = cast(size_t)e.toInteger();
@@ -1424,15 +1349,8 @@ extern (C++) Expression initializerToExpression(Initializer init, Type itype = n
         return null;
     }
 
-    final switch (init.kind)
-    {
-        case InitKind.void_:   return visitVoid  (init.isVoidInitializer());
-        case InitKind.error:   return visitError (init.isErrorInitializer());
-        case InitKind.struct_: return visitStruct(init.isStructInitializer());
-        case InitKind.array:   return visitArray (init.isArrayInitializer());
-        case InitKind.exp:     return visitExp   (init.isExpInitializer());
-        case InitKind.C_:      return visitC     (init.isCInitializer());
-    }
+    mixin VisitInitializer!Expression visit;
+    return visit.VisitInitializer(init);
 }
 
 
@@ -1512,4 +1430,142 @@ private bool hasNonConstPointers(Expression e)
         return true;
     }
     return false;
+}
+
+/**
+Given the names and values of a `StructInitializer` or `CallExp`,
+resolve it to a list of expressions to construct a `StructLiteralExp`.
+
+Params:
+    sd = struct
+    t = type of struct (potentially including qualifiers such as `const` or `immutable`)
+    sc = scope of the expression initializing the struct
+    iloc = location of expression initializing the struct
+    names = identifiers passed in argument list, `null` entries for positional arguments
+    getExp = function that, given an index into `names` and destination type, returns the initializing expression
+    getLoc = function that, given an index into `names`, returns a location for error messages
+
+Returns: list of expressions ordered to the struct's fields, or `null` on error
+*/
+Expressions* resolveStructLiteralNamedArgs(StructDeclaration sd, Type t, Scope* sc,
+    Loc iloc, Identifier[] names, scope Expression delegate(size_t i, Type fieldType) getExp,
+    scope Loc delegate(size_t i) getLoc
+)
+{
+    //expandTuples for non-identity arguments?
+    const nfields = sd.nonHiddenFields();
+    auto elements = new Expressions(nfields);
+    auto elems = (*elements)[];
+    foreach (ref elem; elems)
+        elem = null;
+
+    // Run semantic for explicitly given initializers
+    // TODO: this part is slightly different from StructLiteralExp::semantic.
+    bool errors = false;
+    size_t fieldi = 0;
+    foreach (j, id; names)
+    {
+        const argLoc = getLoc(j);
+        if (id)
+        {
+            // Determine `fieldi` that `id` matches
+            Dsymbol s = sd.search(iloc, id);
+            if (!s)
+            {
+                s = sd.search_correct(id);
+                if (s)
+                    error(argLoc, "`%s` is not a member of `%s`, did you mean %s `%s`?", id.toChars(), sd.toChars(), s.kind(), s.toChars());
+                else
+                    error(argLoc, "`%s` is not a member of `%s`", id.toChars(), sd.toChars());
+                return null;
+            }
+            s.checkDeprecated(iloc, sc);
+            s = s.toAlias();
+
+            // Find out which field index `s` is
+            for (fieldi = 0; 1; fieldi++)
+            {
+                if (fieldi >= nfields)
+                {
+                    error(iloc, "`%s.%s` is not a per-instance initializable field", sd.toChars(), s.toChars());
+                    return null;
+                }
+                if (s == sd.fields[fieldi])
+                    break;
+            }
+        }
+        if (nfields == 0)
+        {
+            error(argLoc, "initializer provided for struct `%s` with no fields", sd.toChars());
+            return null;
+        }
+        if (j >= nfields)
+        {
+            error(argLoc, "too many initializers for `%s` with %d field%s", sd.toChars(),
+                cast(int) nfields, nfields != 1 ? "s".ptr : "".ptr);
+            return null;
+        }
+
+        VarDeclaration vd = sd.fields[fieldi];
+        if (elems[fieldi])
+        {
+            error(argLoc, "duplicate initializer for field `%s`", vd.toChars());
+            errors = true;
+            elems[fieldi] = ErrorExp.get(); // for better diagnostics on multiple errors
+            ++fieldi;
+            continue;
+        }
+
+        // Check for @safe violations
+        if (vd.type.hasPointers)
+        {
+            if ((!t.alignment.isDefault() && t.alignment.get() < target.ptrsize ||
+                    (vd.offset & (target.ptrsize - 1))))
+            {
+                if (sc.setUnsafe(false, argLoc,
+                    "field `%s.%s` cannot assign to misaligned pointers in `@safe` code", sd, vd))
+                {
+                    errors = true;
+                    elems[fieldi] = ErrorExp.get(); // for better diagnostics on multiple errors
+                    ++fieldi;
+                    continue;
+                }
+            }
+        }
+
+        // Check for overlapping initializations (can happen with unions)
+        foreach (k, v2; sd.fields[0 .. nfields])
+        {
+            if (vd.isOverlappedWith(v2) && elems[k])
+            {
+                error(elems[k].loc, "overlapping initialization for field `%s` and `%s`", v2.toChars(), vd.toChars());
+                enum errorMsg = "`struct` initializers that contain anonymous unions" ~
+                    " must initialize only the first member of a `union`. All subsequent" ~
+                    " non-overlapping fields are default initialized";
+                if (!sd.isUnionDeclaration())
+                    .errorSupplemental(elems[k].loc, errorMsg);
+                errors = true;
+                continue;
+            }
+        }
+
+        assert(sc);
+
+        auto ex = getExp(j, vd.type);
+
+        if (ex.op == EXP.error)
+        {
+            errors = true;
+            elems[fieldi] = ErrorExp.get(); // for better diagnostics on multiple errors
+            ++fieldi;
+            continue;
+        }
+
+        elems[fieldi] = doCopyOrMove(sc, ex);
+        ++fieldi;
+    }
+    if (errors)
+        return null;
+
+    return elements;
 }

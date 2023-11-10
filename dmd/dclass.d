@@ -3,7 +3,7 @@
  *
  * Specification: $(LINK2 https://dlang.org/spec/class.html, Classes)
  *
- * Copyright:   Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright:   Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * Authors:     $(LINK2 https://www.digitalmars.com, Walter Bright)
  * License:     $(LINK2 https://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Source:      $(LINK2 https://github.com/dlang/dmd/blob/master/src/dmd/dclass.d, _dclass.d)
@@ -17,7 +17,6 @@ import core.stdc.stdio;
 import core.stdc.string;
 
 import dmd.aggregate;
-import dmd.apply;
 import dmd.arraytypes;
 import dmd.astenums;
 import dmd.attrib;
@@ -30,6 +29,7 @@ import dmd.func;
 import dmd.globals;
 import dmd.id;
 import dmd.identifier;
+import dmd.location;
 import dmd.mtype;
 import dmd.objc;
 import dmd.root.rmem;
@@ -74,10 +74,10 @@ extern (C++) struct BaseClass
 
         //printf("BaseClass.fillVtbl(this='%s', cd='%s')\n", sym.toChars(), cd.toChars());
         if (vtbl)
-            vtbl.setDim(sym.vtbl.dim);
+            vtbl.setDim(sym.vtbl.length);
 
         // first entry is ClassInfo reference
-        for (size_t j = sym.vtblOffset(); j < sym.vtbl.dim; j++)
+        for (size_t j = sym.vtblOffset(); j < sym.vtbl.length; j++)
         {
             FuncDeclaration ifd = sym.vtbl[j].isFuncDeclaration();
 
@@ -113,7 +113,7 @@ extern (C++) struct BaseClass
             BaseClass* b = &baseInterfaces[i];
             BaseClass* b2 = sym.interfaces[i];
 
-            assert(b2.vtbl.dim == 0); // should not be filled yet
+            assert(b2.vtbl.length == 0); // should not be filled yet
             memcpy(b, b2, BaseClass.sizeof);
 
             if (i) // single inheritance is i==0
@@ -220,7 +220,7 @@ version (IN_LLVM) {} else
 
         this.members = members;
 
-        //printf("ClassDeclaration(%s), dim = %d\n", ident.toChars(), this.baseclasses.dim);
+        //printf("ClassDeclaration(%s), dim = %d\n", ident.toChars(), this.baseclasses.length);
 
         // For forward references
         type = new TypeClass(this);
@@ -393,8 +393,8 @@ version (IN_LLVM) {} else
 
         cd.storage_class |= storage_class;
 
-        cd.baseclasses.setDim(this.baseclasses.dim);
-        for (size_t i = 0; i < cd.baseclasses.dim; i++)
+        cd.baseclasses.setDim(this.baseclasses.length);
+        for (size_t i = 0; i < cd.baseclasses.length; i++)
         {
             BaseClass* b = (*this.baseclasses)[i];
             auto b2 = new BaseClass(b.type.syntaxCopy());
@@ -427,7 +427,7 @@ version (IN_LLVM) {} else
         if (!cd)
             return false;
         //printf("ClassDeclaration.isBaseOf2(this = '%s', cd = '%s')\n", toChars(), cd.toChars());
-        for (size_t i = 0; i < cd.baseclasses.dim; i++)
+        for (size_t i = 0; i < cd.baseclasses.length; i++)
         {
             BaseClass* b = (*cd.baseclasses)[i];
             if (b.sym == this || isBaseOf2(b.sym))
@@ -613,7 +613,7 @@ version (IN_LLVM) {} else
                 if (!b.sym.alignsize)
                     b.sym.alignsize = target.ptrsize;
                 alignmember(structalign_t(cast(ushort)b.sym.alignsize), b.sym.alignsize, &offset);
-                assert(bi < vtblInterfaces.dim);
+                assert(bi < vtblInterfaces.length);
 
                 BaseClass* bv = (*vtblInterfaces)[bi];
                 if (b.sym.interfaces.length == 0)
@@ -869,7 +869,7 @@ version (IN_LLVM) {} else
          * Resolve forward references to all class member functions,
          * and determine whether this class is abstract.
          */
-        static int func(Dsymbol s)
+        static int func(Dsymbol s, void*)
         {
             auto fd = s.isFuncDeclaration();
             if (!fd)
@@ -882,10 +882,14 @@ version (IN_LLVM) {} else
             return 0;
         }
 
-        for (size_t i = 0; i < members.dim; i++)
+        // opaque class is not abstract if it is not declared abstract
+        if (!members)
+            return no();
+
+        for (size_t i = 0; i < members.length; i++)
         {
             auto s = (*members)[i];
-            if (s.apply(&func))
+            if (s.apply(&func, null))
             {
                 return yes();
             }
@@ -912,7 +916,7 @@ version (IN_LLVM) {} else
              * each of the virtual functions,
              * which will fill in the vtbl[] overrides.
              */
-            static int virtualSemantic(Dsymbol s)
+            static int virtualSemantic(Dsymbol s, void*)
             {
                 auto fd = s.isFuncDeclaration();
                 if (fd && !(fd.storage_class & STC.static_) && !fd.isUnitTestDeclaration())
@@ -920,16 +924,16 @@ version (IN_LLVM) {} else
                 return 0;
             }
 
-            for (size_t i = 0; i < members.dim; i++)
+            for (size_t i = 0; i < members.length; i++)
             {
                 auto s = (*members)[i];
-                s.apply(&virtualSemantic);
+                s.apply(&virtualSemantic,null);
             }
         }
 
         /* Finally, check the vtbl[]
          */
-        foreach (i; 1 .. vtbl.dim)
+        foreach (i; 1 .. vtbl.length)
         {
             auto fd = vtbl[i].isFuncDeclaration();
             //if (fd) printf("\tvtbl[%d] = [%s] %s\n", i, fd.loc.toChars(), fd.toPrettyChars());
@@ -965,12 +969,6 @@ version (IN_LLVM) {} else
 
     /****************************************
      */
-    override final void addLocalClass(ClassDeclarations* aclasses)
-    {
-        if (classKind != ClassKind.objc)
-            aclasses.push(this);
-    }
-
     override final void addObjcSymbols(ClassDeclarations* classes, ClassDeclarations* categories)
     {
         .objc.addSymbols(this, classes, categories);
@@ -983,7 +981,7 @@ version (IN_LLVM) {} else
     {
         if (!vtblsym)
         {
-            auto vtype = Type.tvoidptr.immutableOf().sarrayOf(vtbl.dim);
+            auto vtype = Type.tvoidptr.immutableOf().sarrayOf(vtbl.length);
             auto var = new VarDeclaration(loc, vtype, Identifier.idPool("__vtbl"), null, STC.immutable_ | STC.static_);
             var.addMember(null, this);
             var.isdataseg = 1;

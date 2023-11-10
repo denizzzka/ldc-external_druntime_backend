@@ -29,6 +29,7 @@
 #include "driver/cl_options_sanitizers.h"
 #include "driver/codegenerator.h"
 #include "driver/configfile.h"
+#include "driver/cpreprocessor.h"
 #include "driver/dcomputecodegenerator.h"
 #include "driver/exe_path.h"
 #include "driver/ldc-version.h"
@@ -439,10 +440,18 @@ void parseCommandLine(Strings &sourceFiles) {
   if (global.params.useDIP1000 == FeatureState::enabled) // DIP1000 implies DIP25
     global.params.useDIP25 = FeatureState::enabled;
   // legacy -dip25 option
-  if (global.params.useDIP25 == FeatureState::default_ &&
-      opts::useDIP25.getNumOccurrences()) {
-    global.params.useDIP25 =
-        opts::useDIP25 ? FeatureState::enabled : FeatureState::disabled;
+  if (opts::useDIP25.getNumOccurrences()) {
+    deprecation(Loc(), "`-dip25` no longer has any effect");
+  }
+
+  // -betterC implies -allinst (since D v2.105)
+  if (global.params.betterC) {
+    global.params.allInst = true;
+  }
+
+  // -wo implies at least -wi (print the warnings)
+  if (global.params.obsolete && global.params.warnings == DIAGNOSTICoff) {
+    global.params.warnings = DIAGNOSTICinform;
   }
 
   global.params.output_o =
@@ -581,7 +590,9 @@ void initializePasses() {
 #endif
   initializeVectorization(Registry);
   initializeInstCombine(Registry);
+#if LDC_LLVM_VER < 1600
   initializeAggressiveInstCombine(Registry);
+#endif
   initializeIPO(Registry);
 #if LDC_LLVM_VER < 1600
   initializeInstrumentation(Registry);
@@ -754,6 +765,16 @@ void registerPredefinedTargetVersions() {
   case llvm::Triple::wasm64:
     VersionCondition::addPredefinedGlobalIdent("WebAssembly");
     break;
+#if LDC_LLVM_VER >= 1600
+  case llvm::Triple::loongarch32:
+    VersionCondition::addPredefinedGlobalIdent("LoongArch32");
+    registerPredefinedFloatABI("LoongArch_SoftFloat", "LoongArch_HardFloat");
+    break;
+  case llvm::Triple::loongarch64:
+    VersionCondition::addPredefinedGlobalIdent("LoongArch64");
+    registerPredefinedFloatABI("LoongArch_SoftFloat", "LoongArch_HardFloat");
+    break;
+#endif // LDC_LLVM_VER >= 1600
   default:
     warning(Loc(), "unknown target CPU architecture: %s",
             triple.getArchName().str().c_str());
@@ -1113,6 +1134,11 @@ int cppmain() {
     fatal();
   }
 
+  global.compileEnv.previewIn = global.params.previewIn;
+  global.compileEnv.ddocOutput = global.params.ddoc.doOutput;
+  global.compileEnv.shortenedMethods = global.params.shortenedMethods;
+  global.compileEnv.obsolete = global.params.obsolete;
+
   if (opts::fTimeTrace) {
     initializeTimeTrace(opts::fTimeTraceGranularity, 0, opts::allArguments[0]);
   }
@@ -1184,6 +1210,8 @@ int cppmain() {
     global.params.dllexport = false;
     global.params.dllimport = DLLImport::none;
   }
+
+  global.preprocess = &runCPreprocessor;
 
   // allocate the target abi
   gABI = TargetABI::getTarget();

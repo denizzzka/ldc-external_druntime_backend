@@ -18,6 +18,7 @@ module driver.timetrace;
 
 import dmd.errors;
 import dmd.globals;
+import dmd.location;
 import dmd.root.array;
 import dmd.root.file;
 import dmd.common.outbuffer;
@@ -117,10 +118,6 @@ void timeTraceProfilerBegin(const(char)* name_ptr, const(char)* detail_ptr, Loc 
 
     assert(timeTraceProfiler);
 
-    // `loc` contains a pointer to a string, so we need to duplicate that string too.
-    if (loc.filename)
-        loc.filename = strdup(loc.filename);
-
     timeTraceProfiler.beginScope(xarraydup(name_ptr.toDString()),
                                  xarraydup(detail_ptr.toDString()), loc);
 }
@@ -208,6 +205,24 @@ struct TimeTraceProfiler
         }
     }
 
+    /// Takes ownership of the string returned by `details`.
+    void endScopeUpdateDetails(scope const(char)[] delegate() details)
+    {
+        TimeTicks timeEnd = getTimeTicks();
+
+        DurationEvent event = durationStack.pop();
+        event.timeDuration = timeEnd - event.timeBegin;
+        if (event.timeDuration >= timeGranularity)
+        {
+            // Event passes the logging threshold
+            event.details = details();
+            event.timeBegin -= beginningOfTime;
+            durationEvents.push(event);
+            counterEvents.push(generateCounterEvent(timeEnd-beginningOfTime));
+        }
+    }
+
+
     CounterEvent generateCounterEvent(TimeTicks timepoint)
     {
         static import dmd.root.rmem;
@@ -274,12 +289,12 @@ struct TimeTraceProfiler
         // {"ph":"M","ts":0,"args":{"name":"bin/ldc2"},"name":"thread_name","pid":0,"tid":0},
 
         buf.write(`{"ph":"M","ts":0,"args":{"name":"`);
-        buf.write(processName);
+        buf.writeEscapeJSONString(processName);
         buf.write(`"},"name":"process_name",`);
         buf.write(pidtid_string);
         buf.write("},\n");
         buf.write(`{"ph":"M","ts":0,"args":{"name":"`);
-        buf.write(processName);
+        buf.writeEscapeJSONString(processName);
         buf.write(`"},"cat":"","name":"thread_name",`);
         buf.write(pidtid_string);
         buf.write("},\n");
@@ -314,13 +329,13 @@ struct TimeTraceProfiler
 
         void writeLocation(Loc loc)
         {
-            if (loc.filename)
+            if (loc.filename())
             {
-                writeEscapeJSONString(buf, loc.filename.toDString());
-                if (loc.linnum)
+                writeEscapeJSONString(buf, loc.filename().toDString());
+                if (loc.linnum())
                 {
                     buf.writeByte(':');
-                    buf.print(loc.linnum);
+                    buf.print(loc.linnum());
                 }
             }
             else
@@ -368,10 +383,6 @@ struct TimeTraceScope
         if (timeTraceProfilerEnabled())
         {
             assert(timeTraceProfiler);
-            // `loc` contains a pointer to a string, so we need to duplicate that too.
-            import core.stdc.string : strdup;
-            if (loc.filename)
-                loc.filename = strdup(loc.filename);
             timeTraceProfiler.beginScope(name.dup, "", loc);
         }
     }
@@ -380,21 +391,56 @@ struct TimeTraceScope
         if (timeTraceProfilerEnabled())
         {
             assert(timeTraceProfiler);
-            // `loc` contains a pointer to a string, so we need to duplicate that too.
-            import core.stdc.string : strdup;
-            if (loc.filename)
-                loc.filename = strdup(loc.filename);
             timeTraceProfiler.beginScope(name.dup, detail.dup, loc);
+        }
+    }
+    /// Takes ownership of string returned by `detail`.
+    this(lazy string name, scope const(char)[] delegate() detail, Loc loc = Loc())
+    {
+        if (timeTraceProfilerEnabled())
+        {
+            assert(timeTraceProfiler);
+            timeTraceProfiler.beginScope(name.dup, detail(), loc);
         }
     }
 
     ~this()
     {
         if (timeTraceProfilerEnabled())
-            timeTraceProfilerEnd();
+            timeTraceProfiler.endScope();
     }
 }
 
+/// RAII helper class to call the begin and end functions of the time trace
+/// profiler.  When the object is constructed, it begins the section; and when
+/// it is destroyed, it stops it.
+/// Delays string evaluation (via delegate) until the object is destroyed and the delegate
+/// is only called when the event passes the granularity threshold.
+struct TimeTraceScopeDelayedDetail
+{
+    @disable this();
+    @disable this(this);
+
+    const(char)[] delegate() details_dlg;
+
+    /// Takes ownership of string returned by `detail`.
+    /// `detail` is stored in the struct, but does not escape the lifetime of the struct object.
+    this(lazy string name, scope const(char)[] delegate() detail, Loc loc = Loc()) scope @system
+    {
+        if (timeTraceProfilerEnabled())
+        {
+            assert(timeTraceProfiler);
+            details_dlg = detail;
+            timeTraceProfiler.beginScope(name.dup, "", loc);
+        }
+    }
+
+    ~this()
+    {
+        if (timeTraceProfilerEnabled())
+            timeTraceProfiler.endScopeUpdateDetails(details_dlg);
+    }
+}
 
 private void writeEscapeJSONString(OutBuffer* buf, const(char[]) str)
 {

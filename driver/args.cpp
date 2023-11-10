@@ -157,13 +157,11 @@ struct ResponseFile {
 };
 } // anonymous namespace
 
-int executeAndWait(
-    std::vector<const char *> fullArgs,
-    llvm::Optional<llvm::sys::WindowsEncodingMethod> responseFileEncoding,
-    std::string *errorMsg) {
+int executeAndWait(std::vector<const char *> fullArgs,
+                   llvm::sys::WindowsEncodingMethod responseFileEncoding,
+                   std::string *errorMsg) {
   args::ResponseFile rspFile;
-  if (responseFileEncoding.hasValue() &&
-      !rspFile.setup(fullArgs, responseFileEncoding.getValue())) {
+  if (!rspFile.setup(fullArgs, responseFileEncoding)) {
     if (errorMsg)
       *errorMsg = "could not write temporary response file";
     return -1;
@@ -177,7 +175,11 @@ int executeAndWait(
   }
 
   const std::vector<llvm::StringRef> argv = toRefsVector(fullArgs);
+#if LDC_LLVM_VER < 1600
   auto envVars = llvm::None;
+#else
+  auto envVars = std::nullopt;
+#endif
 
   return llvm::sys::ExecuteAndWait(argv[0], argv, envVars, {}, 0, 0, errorMsg);
 }

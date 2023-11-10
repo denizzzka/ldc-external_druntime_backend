@@ -44,47 +44,44 @@ version (GNU)
     else
         enum isStackGrowingDown = false;
 }
+else version (LDC)
+{
+    // The only LLVM targets as of LLVM 16 with stack growing *upwards* are
+    // apparently NVPTX and AMDGPU, both without druntime support.
+    // Note that there's an analogous `version = StackGrowsDown` in
+    // core.thread.fiber.
+    enum isStackGrowingDown = true;
+}
 else
 {
-    // this should be true for most architectures
-    enum isStackGrowingDown = true;
+    version (X86) enum isStackGrowingDown = true;
+    else version (X86_64) enum isStackGrowingDown = true;
+    else static assert(0, "It is undefined how the stack grows on this architecture.");
 }
 
 package
 {
-    static immutable size_t PAGESIZE;
     version (Posix) static immutable size_t PTHREAD_STACK_MIN;
 }
 
 shared static this()
 {
-    version (Windows)
-    {
-        import core.sys.windows.winbase;
-
-        SYSTEM_INFO info;
-        GetSystemInfo(&info);
-
-        PAGESIZE = info.dwPageSize;
-        assert(PAGESIZE < int.max);
-    }
-    else version (Posix)
+    version (Posix)
     {
         import core.sys.posix.unistd;
 
-        PAGESIZE = cast(size_t)sysconf(_SC_PAGESIZE);
         PTHREAD_STACK_MIN = cast(size_t)sysconf(_SC_THREAD_STACK_MIN);
     }
     else version (DruntimeAbstractRt)
     {
         import external.core.memory : PageSize;
 
-        PAGESIZE = PageSize;
+        pageSize = PageSize;
     }
     else
     {
         static assert(0, "unimplemented");
     }
 
-    assert(PAGESIZE);
+    assert(pageSize);
 }

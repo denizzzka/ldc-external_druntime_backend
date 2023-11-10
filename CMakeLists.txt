@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.4.3)
 if(POLICY CMP0025)
-  cmake_policy(SET CMP0025 NEW)
+    cmake_policy(SET CMP0025 NEW)
+endif()
+if(${CMAKE_VERSION} VERSION_GREATER "3.26.9")
+    # Prevent implicit dependencies for custom commands, e.g.,
+    # `obj/ldc2.o` depending on `lib/libldc.a` with LDC_LINK_MANUALLY=ON.
+    # Only supported since CMake v3.27 unfortunately.
+    set(CMAKE_ADD_CUSTOM_COMMAND_DEPENDS_EXPLICIT_ONLY ON)
 endif()
 
 project(ldc)
@@ -28,7 +34,7 @@ endfunction()
 # Locate LLVM.
 #
 
-find_package(LLVM 9.0 REQUIRED
+find_package(LLVM 11.0 REQUIRED
     all-targets analysis asmparser asmprinter bitreader bitwriter codegen core
     debuginfodwarf debuginfomsf debuginfopdb demangle
     instcombine ipo instrumentation irreader libdriver linker lto mc
@@ -46,9 +52,9 @@ foreach(LLVM_SUPPORTED_TARGET ${LLVM_TARGETS_TO_BUILD})
     add_definitions("-DLDC_LLVM_SUPPORTED_TARGET_${LLVM_SUPPORTED_TARGET}=1")
 endforeach()
 
-# Set MLIR support variables if it is found. Only try for LLVM >= 10.0.
+# Set MLIR support variables if it is found.
 # FIXME: LLVM 14+ (`mlir::OwningModuleRef` replacement)
-if(NOT (LDC_LLVM_VER LESS 1000) AND NOT LDC_WITH_MLIR STREQUAL "OFF" AND LDC_LLVM_VER LESS 1400)
+if(NOT LDC_WITH_MLIR STREQUAL "OFF" AND LDC_LLVM_VER LESS 1400)
     include(FindMLIR)
     if(MLIR_FOUND)
         message(STATUS "-- Building LDC with MLIR support (${MLIR_ROOT_DIR})")
@@ -111,9 +117,9 @@ include(GetLinuxDistribution)
 #
 
 # Version information
-set(LDC_VERSION "1.31.0") # May be overridden by git hash tag
+set(LDC_VERSION "1.35.0") # May be overridden by git hash tag
 set(DMDFE_MAJOR_VERSION   2)
-set(DMDFE_MINOR_VERSION   101)
+set(DMDFE_MINOR_VERSION   105)
 set(DMDFE_PATCH_VERSION   2)
 
 set(DMD_VERSION ${DMDFE_MAJOR_VERSION}.${DMDFE_MINOR_VERSION}.${DMDFE_PATCH_VERSION})
@@ -249,17 +255,6 @@ if(CMAKE_COMPILER_IS_GNUCXX OR (${CMAKE_CXX_COMPILER_ID} MATCHES "Clang"))
     endif()
 endif()
 
-if(NOT WIN32 AND NOT CYGWIN)
-    # Unify symbol visibility with LLVM to silence linker warning "direct access in function X to global
-    # weak symbol Y means the weak symbol cannot be overridden at runtime. This was likely caused by
-    # different translation units being compiled with different visibility settings."
-    # See LLVM's cmake/modules/HandleLLVMOptions.cmake.
-    check_cxx_compiler_flag("-fvisibility-inlines-hidden" SUPPORTS_FVISIBILITY_INLINES_HIDDEN_FLAG)
-    if (${SUPPORTS_FVISIBILITY_INLINES_HIDDEN_FLAG})
-        append("-fvisibility-inlines-hidden" LDC_CXXFLAGS)
-    endif()
-endif()
-
 if(MSVC)
     # Remove flags here, for exceptions and RTTI.
     # CL.EXE complains to override flags like "/GR /GR-".
@@ -378,6 +373,7 @@ set(DRV_SRC
     driver/cl_options-llvm.cpp
     driver/codegenerator.cpp
     driver/configfile.cpp
+    driver/cpreprocessor.cpp
     driver/dcomputecodegenerator.cpp
     driver/exe_path.cpp
     driver/targetmachine.cpp
@@ -603,12 +599,10 @@ if(MSVC)
     endif()
 endif()
 if(LDC_WITH_LLD)
-    if(NOT (LDC_LLVM_VER LESS 1000))
-        if(MSVC)
-            list(APPEND LDC_LINKERFLAG_LIST LLVMSymbolize.lib)
-        else()
-            set(LDC_LINKERFLAG_LIST -lLLVMSymbolize ${LDC_LINKERFLAG_LIST})
-        endif()
+    if(MSVC)
+        list(APPEND LDC_LINKERFLAG_LIST LLVMSymbolize.lib)
+    else()
+        set(LDC_LINKERFLAG_LIST -lLLVMSymbolize ${LDC_LINKERFLAG_LIST})
     endif()
     if (LDC_LLVM_VER LESS 1200 OR NOT LDC_LLVM_VER LESS 1400)
         set(LLD_MACHO lldMachO)
@@ -635,33 +629,6 @@ if(LDC_WITH_LLD)
     endif()
 endif()
 
-# Plugin support
-if(UNIX)
-    set(LDC_ENABLE_PLUGINS_DEFAULT ON)
-else()
-    set(LDC_ENABLE_PLUGINS_DEFAULT OFF)
-endif()
-set(LDC_ENABLE_PLUGINS ${LDC_ENABLE_PLUGINS_DEFAULT} CACHE BOOL "Build LDC with plugin support (increases binary size)")
-if(LDC_ENABLE_PLUGINS)
-    add_definitions(-DLDC_ENABLE_PLUGINS)
-
-    if(APPLE)
-        # No extra link flags needed.
-    elseif(UNIX)
-        # For plugin support, we need to link with --export-dynamic on Unix.
-        # Make sure the linker supports --export-dynamic (on Solaris it is not supported and also not needed).
-        set(CMAKE_REQUIRED_QUIET_BAK ${CMAKE_REQUIRED_QUIET})
-        set(CMAKE_REQUIRED_QUIET ON) # suppress status messages
-        CHECK_LINK_FLAG("--export-dynamic" LINKER_ACCEPTS_EXPORT_DYNAMIC_FLAG)
-        set(CMAKE_REQUIRED_QUIET ${CMAKE_REQUIRED_QUIET_BAK})
-
-        if(LINKER_ACCEPTS_EXPORT_DYNAMIC_FLAG)
-            set(LDC_LINKERFLAG_LIST "${LDC_LINKERFLAG_LIST};-Wl,--export-dynamic")
-        endif()
-    endif()
-endif()
-message(STATUS "-- Building LDC with plugin support (LDC_ENABLE_PLUGINS): ${LDC_ENABLE_PLUGINS}")
-
 if(NOT DEFINED LDC_LINK_MANUALLY)
     if(MSVC)
         # Use the D host compiler for linking D executables.
@@ -676,6 +643,58 @@ if(LDC_LINK_MANUALLY AND NOT DEFINED D_LINKER_ARGS)
     include(ExtractDMDSystemLinker)
     message(STATUS "Host D compiler linker program: ${D_LINKER_COMMAND}")
     message(STATUS "Host D compiler linker flags: ${D_LINKER_ARGS}")
+endif()
+
+# Plugin support
+if(UNIX)
+    set(LDC_ENABLE_PLUGINS_DEFAULT ON)
+else()
+    set(LDC_ENABLE_PLUGINS_DEFAULT OFF)
+endif()
+set(LDC_ENABLE_PLUGINS ${LDC_ENABLE_PLUGINS_DEFAULT} CACHE BOOL "Build LDC with plugin support (increases binary size)")
+if(LDC_ENABLE_PLUGINS)
+    add_definitions(-DLDC_ENABLE_PLUGINS)
+
+    if(APPLE)
+        # Need to disable dead_strip with LDC host compilers.
+        if("${D_COMPILER_ID}" STREQUAL "LDMD")
+            if(LDC_LINK_MANUALLY)
+                # suboptimal - applies to all D executables (incl. ldmd2, ldc-build-runtime, ldc-prune-cache)
+                list(REMOVE_ITEM D_LINKER_ARGS "-Wl,-dead_strip")
+            else()
+                # just for ldc2 (and ldc2-unittest)
+                append("-disable-linker-strip-dead" DFLAGS_LDC)
+            endif()
+        endif()
+    elseif(UNIX)
+        # For plugin support, we need to link with --export-dynamic on Unix.
+        # Make sure the linker supports --export-dynamic (on Solaris it is not supported and also not needed).
+        set(CMAKE_REQUIRED_QUIET_BAK ${CMAKE_REQUIRED_QUIET})
+        set(CMAKE_REQUIRED_QUIET ON) # suppress status messages
+        CHECK_LINK_FLAG("--export-dynamic" LINKER_ACCEPTS_EXPORT_DYNAMIC_FLAG)
+        set(CMAKE_REQUIRED_QUIET ${CMAKE_REQUIRED_QUIET_BAK})
+
+        if(LINKER_ACCEPTS_EXPORT_DYNAMIC_FLAG)
+            set(LDC_LINKERFLAG_LIST "${LDC_LINKERFLAG_LIST};-Wl,--export-dynamic")
+        else()
+            message(WARNING "Linker does not accept --export-dynamic, user plugins may give missing symbol errors upon load")
+        endif()
+    endif()
+endif()
+message(STATUS "-- Building LDC with plugin support (LDC_ENABLE_PLUGINS): ${LDC_ENABLE_PLUGINS}")
+message(STATUS "-- Linking LDC with flags: ${ALTERNATIVE_MALLOC_O};${LDC_LINKERFLAG_LIST}")
+
+if(NOT WIN32 AND NOT CYGWIN)
+    # Unify symbol visibility with LLVM to silence linker warning "direct access in function X to global
+    # weak symbol Y means the weak symbol cannot be overridden at runtime. This was likely caused by
+    # different translation units being compiled with different visibility settings."
+    # See LLVM's cmake/modules/HandleLLVMOptions.cmake.
+    check_cxx_compiler_flag("-fvisibility-inlines-hidden" SUPPORTS_FVISIBILITY_INLINES_HIDDEN_FLAG)
+    if (LDC_ENABLE_PLUGINS AND NOT APPLE)
+        # For plugins, we shouldn't apply this flag because it hides the inline methods of e.g. Visitor. On macOS it's OK to add.
+    elseif (${SUPPORTS_FVISIBILITY_INLINES_HIDDEN_FLAG})
+        append("-fvisibility-inlines-hidden" LDC_CXXFLAGS)
+    endif()
 endif()
 
 build_d_executable(
@@ -773,7 +792,11 @@ else()
 endif()
 set(LDC_INSTALL_LLVM_RUNTIME_LIBS ${LDC_INSTALL_LLVM_RUNTIME_LIBS_DEFAULT} CACHE BOOL "Copy/install LLVM compiler-rt libraries (ASan, libFuzzer, ...) from LLVM/Clang into LDC lib dir when available.")
 function(copy_compilerrt_lib llvm_lib_name ldc_lib_name fixup_dylib)
-    set(llvm_lib_path ${LLVM_LIBRARY_DIRS}/clang/${LLVM_VERSION_BASE_STRING}/lib/${llvm_lib_name})
+    if(LDC_LLVM_VER LESS 1600)
+        set(llvm_lib_path ${LLVM_LIBRARY_DIRS}/clang/${LLVM_VERSION_BASE_STRING}/lib/${llvm_lib_name})
+    else()
+        set(llvm_lib_path ${LLVM_LIBRARY_DIRS}/clang/${LLVM_VERSION_MAJOR}/lib/${llvm_lib_name})
+    endif()
     if(EXISTS ${llvm_lib_path})
         message(STATUS "--  - ${llvm_lib_path} --> ${ldc_lib_name}")
         set(ldc_lib_path ${PROJECT_BINARY_DIR}/lib${LIB_SUFFIX}/${ldc_lib_name})
@@ -802,8 +825,15 @@ if (LDC_INSTALL_LLVM_RUNTIME_LIBS)
         copy_compilerrt_lib("darwin/libclang_rt.xray-fdr_osx.a"        "libldc_rt.xray-fdr.a"       FALSE)
         copy_compilerrt_lib("darwin/libclang_rt.xray-profiling_osx.a"  "libldc_rt.xray-profiling.a" FALSE)
     elseif(UNIX)
-        set(LDC_INSTALL_LLVM_RUNTIME_LIBS_OS   "linux"  CACHE STRING "Non-Mac Posix: OS used as directory name for the compiler-rt source libraries, e.g., 'freebsd'.")
-        set(LDC_INSTALL_LLVM_RUNTIME_LIBS_ARCH "x86_64" CACHE STRING "Non-Mac Posix: architecture used as libname suffix for the compiler-rt source libraries, e.g., 'aarch64'.")
+        if(LDC_LLVM_VER LESS 1500)
+            set(LDC_INSTALL_LLVM_RUNTIME_LIBS_OS_DEFAULT "linux")
+            set(LDC_INSTALL_LLVM_RUNTIME_LIBS_ARCH_DEFAULT "x86_64")
+        else()
+            set(LDC_INSTALL_LLVM_RUNTIME_LIBS_OS_DEFAULT "x86_64-unknown-linux-gnu")
+            set(LDC_INSTALL_LLVM_RUNTIME_LIBS_ARCH_DEFAULT "")
+        endif()
+        set(LDC_INSTALL_LLVM_RUNTIME_LIBS_OS   "${LDC_INSTALL_LLVM_RUNTIME_LIBS_OS_DEFAULT}"   CACHE STRING "Non-Mac Posix: OS used as directory name for the compiler-rt source libraries, e.g., 'freebsd'.")
+        set(LDC_INSTALL_LLVM_RUNTIME_LIBS_ARCH "${LDC_INSTALL_LLVM_RUNTIME_LIBS_ARCH_DEFAULT}" CACHE STRING "Non-Mac Posix: architecture used as libname suffix for the compiler-rt source libraries, e.g., 'aarch64'.")
         if(LDC_INSTALL_LLVM_RUNTIME_LIBS_ARCH STREQUAL "")
             set(compilerrt_suffix "")
         else()

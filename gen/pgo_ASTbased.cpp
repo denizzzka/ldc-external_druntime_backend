@@ -117,7 +117,7 @@ public:
     if (Count && Count % NumTypesPerWord == 0) {
       using namespace llvm::support;
       uint64_t Swapped = endian::byte_swap<uint64_t, little>(Working);
-      MD5.update(llvm::makeArrayRef((uint8_t *)&Swapped, sizeof(Swapped)));
+      MD5.update(llvm::ArrayRef<uint8_t>((uint8_t *)&Swapped, sizeof(Swapped)));
       Working = 0;
     }
 
@@ -138,7 +138,7 @@ public:
     if (Working) {
       using namespace llvm::support;
       uint64_t Swapped = endian::byte_swap<uint64_t, little>(Working);
-      MD5.update(llvm::makeArrayRef((uint8_t *)&Swapped, sizeof(Swapped)));
+      MD5.update(llvm::ArrayRef<uint8_t>((uint8_t *)&Swapped, sizeof(Swapped)));
     }
 
     // Finalize the MD5 and return the hash.
@@ -190,7 +190,7 @@ struct MapRegionCounters : public StoppableVisitor {
   void visit(ScopeStatement *) override {}
   void visit(ReturnStatement *) override {}
   void visit(StaticAssertStatement *) override {}
-  void visit(CompileStatement *) override {}
+  void visit(MixinStatement *) override {}
   void visit(ScopeGuardStatement *) override {}
   void visit(ConditionalStatement *) override {}
   void visit(StaticForeachStatement *) override {}
@@ -955,7 +955,7 @@ void CodeGenPGO::loadRegionCounts(llvm::IndexedInstrProfReader *PGOReader,
   }
 
   ProfRecord =
-      llvm::make_unique<llvm::InstrProfRecord>(std::move(RecordExpected.get()));
+      std::make_unique<llvm::InstrProfRecord>(std::move(RecordExpected.get()));
   RegionCounts = ProfRecord->Counts;
 
   IF_LOG Logger::println("Loaded profile data for function: %s",

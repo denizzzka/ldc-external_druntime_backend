@@ -33,7 +33,7 @@
 #include "llvm/Bitcode/BitcodeWriter.h"
 #include "llvm/IR/Attributes.h"
 #if LDC_LLVM_VER >= 1600
-#include "llvm/IR/ModRef.h"
+#include "llvm/Support/ModRef.h"
 #endif
 #include "llvm/IR/Module.h"
 #include "llvm/Support/CommandLine.h"
@@ -73,8 +73,6 @@ static void checkForImplicitGCCall(const Loc &loc, const char *name) {
         "_d_arrayappendcTX",
         "_d_arrayappendcd",
         "_d_arrayappendwd",
-        "_d_arraycatT",
-        "_d_arraycatnTX",
         "_d_arraysetlengthT",
         "_d_arraysetlengthiT",
         "_d_assocarrayliteralTX",
@@ -91,8 +89,7 @@ static void checkForImplicitGCCall(const Loc &loc, const char *name) {
         "_d_newarrayU",
         "_d_newclass",
         "_d_allocclass",
-        "_d_newitemT",
-        "_d_newitemiT",
+        // TODO: _d_newitemT instantiations
     };
 
     if (binary_search(&GCNAMES[0],
@@ -364,6 +361,8 @@ llvm::Function *getRuntimeFunction(const Loc &loc, llvm::Module &target,
 //                             const char *funcname);
 // uClibc:  void __assert(const char *assertion, const char *filename, int linenumber,
 //                        const char *function);
+// newlib:  void __assert_func(const char *file, int line, const char *func,
+//                             const char *failedexpr)
 // else:    void __assert(const char *msg, const char *file, unsigned line)
 
 static const char *getCAssertFunctionName() {
@@ -376,6 +375,8 @@ static const char *getCAssertFunctionName() {
     return "__assert_c99";
   } else if (triple.isMusl()) {
     return "__assert_fail";
+  } else if (global.params.isNewlibEnvironment) {
+    return "__assert_func";
   }
   return "__assert";
 }
@@ -391,6 +392,9 @@ static std::vector<PotentiallyLazyType> getCAssertFunctionParamTypes() {
   }
   if (triple.getEnvironment() == llvm::Triple::Android) {
     return {voidPtr, uint, voidPtr};
+  }
+  if (global.params.isNewlibEnvironment) {
+    return {voidPtr, uint, voidPtr, voidPtr};
   }
   return {voidPtr, voidPtr, uint};
 }
@@ -599,24 +603,10 @@ static void buildRuntimeModule() {
   createFwdDecl(LINK::c, voidArrayTy, {"_d_newarraymTX", "_d_newarraymiTX"},
                 {typeInfoTy, sizeTy->arrayOf()}, {STCconst, 0});
 
-  // void[] _d_arraysetlengthT (const TypeInfo ti, size_t newlength, void[]* p)
-  // void[] _d_arraysetlengthiT(const TypeInfo ti, size_t newlength, void[]* p)
-  createFwdDecl(LINK::c, voidArrayTy,
-                {"_d_arraysetlengthT", "_d_arraysetlengthiT"},
-                {typeInfoTy, sizeTy, voidArrayPtrTy}, {STCconst, 0, 0});
-
   // void[] _d_arrayappendcd(ref byte[] x, dchar c)
   // void[] _d_arrayappendwd(ref byte[] x, dchar c)
   createFwdDecl(LINK::c, voidArrayTy, {"_d_arrayappendcd", "_d_arrayappendwd"},
                 {voidArrayTy, dcharTy}, {STCref, 0});
-
-  // byte[] _d_arraycatT(const TypeInfo ti, byte[] x, byte[] y)
-  createFwdDecl(LINK::c, voidArrayTy, {"_d_arraycatT"},
-                {typeInfoTy, voidArrayTy, voidArrayTy}, {STCconst, 0, 0});
-
-  // void[] _d_arraycatnTX(const TypeInfo ti, byte[][] arrs)
-  createFwdDecl(LINK::c, voidArrayTy, {"_d_arraycatnTX"},
-                {typeInfoTy, voidArrayTy->arrayOf()}, {STCconst, 0});
 
   // Object _d_newclass(const ClassInfo ci)
   // Object _d_allocclass(const ClassInfo ci)
@@ -626,11 +616,6 @@ static void buildRuntimeModule() {
   // Throwable _d_newThrowable(const ClassInfo ci)
   createFwdDecl(LINK::c, throwableTy, {"_d_newThrowable"}, {classInfoTy},
                 {STCconst});
-
-  // void* _d_newitemT (TypeInfo ti)
-  // void* _d_newitemiT(TypeInfo ti)
-  createFwdDecl(LINK::c, voidPtrTy, {"_d_newitemT", "_d_newitemiT"},
-                {typeInfoTy}, {0});
 
   // void _d_delarray_t(void[]* p, const TypeInfo_Struct ti)
   createFwdDecl(LINK::c, voidTy, {"_d_delarray_t"},

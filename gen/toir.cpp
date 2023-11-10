@@ -164,7 +164,7 @@ static void write_struct_literal(Loc loc, LLValue *mem, StructDeclaration *sd,
 
       IF_LOG Logger::cout() << "merged IR value: " << *val << '\n';
       gIR->ir->CreateAlignedStore(val, DtoBitCast(ptr, getPtrToType(intType)),
-                                  LLMaybeAlign(1));
+                                  llvm::MaybeAlign(1));
       offset += group.sizeInBytes;
 
       i += group.bitFields.size() - 1; // skip the other bit fields of the group
@@ -219,12 +219,19 @@ void pushVarDtorCleanup(IRState *p, VarDeclaration *vd) {
   p->funcGen().scopes.pushCleanup(beginBB, p->scopebb());
 }
 
-DImValue *zextInteger(LLValue *val, Type *to) {
-  assert(val->getType()->isIntegerTy(1));
+// Zero-extends a scalar i1 to an integer type, or creates a vector mask from an
+// i1 vector.
+DImValue *zextBool(LLValue *val, Type *to) {
+  assert(val->getType()->isIntOrIntVectorTy(1));
   LLType *llTy = DtoType(to);
   if (val->getType() != llTy) {
-    assert(llTy->isIntegerTy());
-    val = gIR->ir->CreateZExt(val, llTy);
+    if (llTy->isVectorTy()) {
+      assert(val->getType()->isVectorTy());
+      val = gIR->ir->CreateSExt(val, llTy);
+    } else {
+      assert(llTy->isIntegerTy());
+      val = gIR->ir->CreateZExt(val, llTy);
+    }
   }
   return new DImValue(to, val);
 }
@@ -449,23 +456,20 @@ public:
 
   //////////////////////////////////////////////////////////////////////////////
 
+  void visit(LoweredAssignExp *e) override {
+    IF_LOG Logger::print("LoweredAssignExp::toElem: %s @ %s\n", e->toChars(),
+                         e->type->toChars());
+    LOG_SCOPE;
+
+    result = toElem(e->lowering);
+  }
+
   void visit(AssignExp *e) override {
     IF_LOG Logger::print("AssignExp::toElem: %s | (%s)(%s = %s)\n",
                          e->toChars(), e->type->toChars(),
                          e->e1->type->toChars(),
                          e->e2->type ? e->e2->type->toChars() : nullptr);
     LOG_SCOPE;
-
-    if (auto ale = e->e1->isArrayLengthExp()) {
-      Logger::println("performing array.length assignment");
-      DLValue arrval(ale->e1->type, DtoLVal(ale->e1));
-      DValue *newlen = toElem(e->e2);
-      DSliceValue *slice =
-          DtoResizeDynArray(e->loc, arrval.type, &arrval, DtoRVal(newlen));
-      DtoStore(DtoRVal(slice), DtoLVal(&arrval));
-      result = newlen;
-      return;
-    }
 
     // Initialization of ref variable?
     // Can't just override ConstructExp::toElem because not all EXP::construct
@@ -1189,8 +1193,8 @@ public:
       p->arrays.pop_back();
 
       const bool hasLength = etype->ty != TY::Tpointer;
-      const bool needCheckUpper = hasLength && !e->upperIsInBounds;
-      const bool needCheckLower = !e->lowerIsLessThanUpper;
+      const bool needCheckUpper = hasLength && !e->upperIsInBounds();
+      const bool needCheckLower = !e->lowerIsLessThanUpper();
       if (p->emitArrayBoundsChecks() && (needCheckUpper || needCheckLower)) {
         llvm::BasicBlock *okbb = p->insertBB("bounds.ok");
         llvm::BasicBlock *failbb = p->insertBBAfter(okbb, "bounds.fail");
@@ -1360,7 +1364,7 @@ public:
       llvm_unreachable("Unsupported CmpExp type");
     }
 
-    result = zextInteger(eval, e->type);
+    result = zextBool(eval, e->type);
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -1406,11 +1410,7 @@ public:
         Logger::cout() << "rv: " << *rv << '\n';
       }
       eval = p->ir->CreateICmp(cmpop, lv, rv);
-      if (t->ty == TY::Tvector) {
-        eval = mergeVectorEquals(eval, e->op);
-      }
-    } else if (t->isfloating()) // includes iscomplex
-    {
+    } else if (t->isfloating()) { // includes iscomplex
       eval = DtoBinNumericEquals(e->loc, l, r, e->op);
     } else if (t->ty == TY::Tsarray || t->ty == TY::Tarray) {
       Logger::println("static or dynamic array");
@@ -1429,7 +1429,7 @@ public:
       llvm_unreachable("Unsupported EqualExp type.");
     }
 
-    result = zextInteger(eval, e->type);
+    result = zextBool(eval, e->type);
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -1465,7 +1465,7 @@ public:
       assert(e->e2->op == EXP::int64);
       LLConstant *offset =
           e->op == EXP::plusPlus ? DtoConstUint(1) : DtoConstInt(-1);
-      post = DtoGEP1(DtoType(dv->type->nextOf()), val, offset, "", p->scopebb());
+      post = DtoGEP1(DtoMemType(dv->type->nextOf()), val, offset, "", p->scopebb());
     } else if (e1type->iscomplex()) {
       assert(e2type->iscomplex());
       LLValue *one = LLConstantFP::get(DtoComplexBaseType(e1type), 1.0);
@@ -1549,8 +1549,9 @@ public:
 
       TypeStruct *ts = static_cast<TypeStruct *>(ntype);
 
-      // allocate
-      LLValue *mem = DtoNewStruct(e->loc, ts);
+      // allocate (via _d_newitemT template lowering)
+      assert(e->lowering);
+      LLValue *mem = DtoRVal(e->lowering);
 
       if (!e->member && e->arguments) {
         IF_LOG Logger::println("Constructing using literal");
@@ -1751,7 +1752,8 @@ public:
        */
       DValue *msg = e->msg ? toElemDtor(e->msg) : nullptr;
       Module *module = p->func()->decl->getModule();
-      if (global.params.checkAction == CHECKACTION_C) {
+      if (global.params.checkAction == CHECKACTION_C ||
+          module->filetype == FileType::c) {
         LLValue *cMsg =
             msg ? DtoArrayPtr(
                       msg) // assuming `msg` is null-terminated, like DMD
@@ -1814,7 +1816,7 @@ public:
     LLConstant *zero = DtoConstBool(false);
     b = p->ir->CreateICmpEQ(b, zero);
 
-    result = zextInteger(b, e->type);
+    result = zextBool(b, e->type);
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -1890,7 +1892,7 @@ public:
       resval = phi;
     }
 
-    result = zextInteger(resval, e->type);
+    result = zextBool(resval, e->type);
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -1990,12 +1992,12 @@ public:
 
     // handle dynarray specially
     if (t1->ty == TY::Tarray) {
-      result = zextInteger(DtoDynArrayIs(e->op, l, r), e->type);
+      result = zextBool(DtoDynArrayIs(e->op, l, r), e->type);
       return;
     }
     // also structs
     if (t1->ty == TY::Tstruct) {
-      result = zextInteger(DtoStructEquals(e->op, l, r), e->type);
+      result = zextBool(DtoStructEquals(e->op, l, r), e->type);
       return;
     }
 
@@ -2010,8 +2012,7 @@ public:
         assert(lv->getType() == rv->getType());
       }
       eval = DtoDelegateEquals(e->op, lv, rv);
-    } else if (t1->isfloating()) // includes iscomplex
-    {
+    } else if (t1->isfloating()) { // includes iscomplex
       eval = DtoBinNumericEquals(e->loc, l, r, e->op);
     } else if (t1->ty == TY::Tpointer || t1->ty == TY::Tclass) {
       LLValue *lv = DtoRVal(l);
@@ -2042,7 +2043,7 @@ public:
                                                               : EXP::notEqual);
       }
     }
-    result = zextInteger(eval, e->type);
+    result = zextBool(eval, e->type);
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -2158,6 +2159,7 @@ public:
                          e->type->toChars());
     LOG_SCOPE;
 
+    // TODO: still required?
     if (global.params.betterC) {
       error(
           e->loc,
@@ -2169,7 +2171,12 @@ public:
       return;
     }
 
-    result = DtoCatArrays(e->loc, e->type, e->e1, e->e2);
+    if (e->lowering) {
+      result = toElem(e->lowering);
+      return;
+    }
+
+    llvm_unreachable("CatExp should have been lowered");
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -2290,34 +2297,47 @@ public:
       // dmd seems to just make them null...
       result = new DSliceValue(e->type, DtoConstSize_t(0),
                                getNullPtr(getPtrToType(llElemType)));
-    } else if (dyn) {
-      if (arrayType->isImmutable() && isConstLiteral(e, true)) {
-        llvm::Constant *init = arrayLiteralToConst(p, e);
-        auto global = new llvm::GlobalVariable(
-            gIR->module, init->getType(), true,
-            llvm::GlobalValue::InternalLinkage, init, ".immutablearray");
-        result = new DSliceValue(arrayType, DtoConstSize_t(len),
-                                 DtoBitCast(global, getPtrToType(llElemType)));
-      } else {
-        DSliceValue *dynSlice = DtoNewDynArray(
-            e->loc, arrayType,
-            new DConstValue(Type::tsize_t, DtoConstSize_t(len)), false);
-        initializeArrayLiteral(
-            p, e, DtoBitCast(dynSlice->getPtr(), getPtrToType(llStoType)), llStoType);
-        result = dynSlice;
-      }
-    } else {
+      return;
+    }
+
+    // allocated on the stack?
+    if (!dyn || e->onstack) {
       llvm::Value *storage =
-          DtoRawAlloca(llStoType, DtoAlignment(e->type), "arrayliteral");
+          DtoRawAlloca(llStoType, DtoAlignment(elemType), "arrayliteral");
       initializeArrayLiteral(p, e, storage, llStoType);
+
       if (arrayType->ty == TY::Tsarray) {
         result = new DLValue(e->type, storage);
+        return;
+      }
+
+      storage = DtoBitCast(storage, llElemType->getPointerTo());
+      if (arrayType->ty == TY::Tarray) {
+        result = new DSliceValue(e->type, DtoConstSize_t(len), storage);
       } else if (arrayType->ty == TY::Tpointer) {
-        storage = DtoBitCast(storage, llElemType->getPointerTo());
         result = new DImValue(e->type, storage);
       } else {
         llvm_unreachable("Unexpected array literal type");
       }
+      return;
+    }
+
+    // we're dealing with a non-stack dynamic array literal now
+    if (arrayType->isImmutable() && isConstLiteral(e, true)) {
+      llvm::Constant *init = arrayLiteralToConst(p, e);
+      auto global = new llvm::GlobalVariable(gIR->module, init->getType(), true,
+                                             llvm::GlobalValue::InternalLinkage,
+                                             init, ".immutablearray");
+      result = new DSliceValue(arrayType, DtoConstSize_t(len),
+                               DtoBitCast(global, getPtrToType(llElemType)));
+    } else {
+      DSliceValue *dynSlice = DtoNewDynArray(
+          e->loc, arrayType,
+          new DConstValue(Type::tsize_t, DtoConstSize_t(len)), false);
+      initializeArrayLiteral(
+          p, e, DtoBitCast(dynSlice->getPtr(), getPtrToType(llStoType)),
+          llStoType);
+      result = dynSlice;
     }
   }
 
@@ -2704,10 +2724,8 @@ public:
       if (auto llConstant = isaConstant(llElement)) {
 #if LDC_LLVM_VER >= 1200
         const auto elementCount = llvm::ElementCount::getFixed(N);
-#elif LDC_LLVM_VER >= 1100
-        const auto elementCount = llvm::ElementCount(N, false);
 #else
-        const auto elementCount = N;
+        const auto elementCount = llvm::ElementCount(N, false);
 #endif
         auto vectorConstant =
             llvm::ConstantVector::getSplat(elementCount, llConstant);
@@ -2757,22 +2775,22 @@ public:
       return;
     }
     if (Expression *ex = isExpression(e->obj)) {
-      Type *t = ex->type->toBasetype();
-      assert(t->ty == TY::Tclass);
+      const auto tc = ex->type->toBasetype()->isTypeClass();
+      assert(tc);
 
-      ClassDeclaration *sym = static_cast<TypeClass *>(t)->sym;
-      IrClass *irc = getIrAggr(sym, true);
+      const auto irtc = getIrType(tc->sym->type, true)->isClass();
+      const auto vtblType = irtc->getVtblType();
       LLValue *val = DtoRVal(ex);
 
       // Get and load vtbl pointer.
-      llvm::GlobalVariable* vtblsym = irc->getVtblSymbol();
-      llvm::Value *vtbl = DtoLoad(vtblsym->getType(), DtoGEP(irc->getLLStructType(), val, 0u, 0));
+      llvm::Value *vtbl = DtoLoad(vtblType->getPointerTo(),
+                                  DtoGEP(irtc->getMemoryLLType(), val, 0u, 0));
 
       // TypeInfo ptr is first vtbl entry.
-      llvm::Value *typinf = DtoGEP(vtblsym->getValueType(), vtbl, 0u, 0);
+      llvm::Value *typinf = DtoGEP(vtblType, vtbl, 0u, 0);
 
       Type *resultType;
-      if (sym->isInterfaceDeclaration()) {
+      if (tc->sym->isInterfaceDeclaration()) {
         // For interfaces, the first entry in the vtbl is actually a pointer
         // to an Interface instance, which has the type info as its first
         // member, so we have to add an extra layer of indirection.

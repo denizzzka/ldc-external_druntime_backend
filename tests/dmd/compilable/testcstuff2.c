@@ -389,6 +389,9 @@ __attribute__((static, unsigned, long, const, extern, register, typedef, short,
                _Thread_local, int, char, float, double, void, _Bool, _Atomic))
 int test22196();
 
+_Atomic(_Bool) atomicbool;
+
+
 /***************************************************/
 // https://issues.dlang.org/show_bug.cgi?id=22245
 
@@ -714,3 +717,36 @@ enum E2 {
     m1,
     m2 = m1
 };
+
+/************************************************************/
+
+// https://issues.dlang.org/show_bug.cgi?id=23725
+
+#define	__fldcw(addr)	asm volatile("fldcw %0" : : "m" (*(addr)))
+
+static __inline void
+__fnldcw(unsigned short _cw, unsigned short _newcw)
+{
+    __fldcw(&_newcw);
+}
+
+void test23725()
+{
+    __fnldcw(1, 2);
+}
+
+/************************************************************/
+// https://issues.dlang.org/show_bug.cgi?id=24070
+
+typedef struct Typ Typ;
+typedef struct Field Field;
+
+struct Typ {
+	struct Field {
+	} (*fields)[1];
+};
+
+static void parse() {
+    Typ* ty;
+    void* fields = &ty->fields;
+}

@@ -1,7 +1,7 @@
 /**
  * Defines a D type.
  *
- * Copyright:   Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright:   Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * Authors:     $(LINK2 https://www.digitalmars.com, Walter Bright)
  * License:     $(LINK2 https://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Source:      $(LINK2 https://github.com/dlang/dmd/blob/master/src/dmd/mtype.d, _mtype.d)
@@ -41,6 +41,7 @@ import dmd.hdrgen;
 import dmd.id;
 import dmd.identifier;
 import dmd.init;
+import dmd.location;
 import dmd.opover;
 import dmd.root.ctfloat;
 import dmd.common.outbuffer;
@@ -312,6 +313,7 @@ int mutabilityOfType(bool isref, Type t)
  */
 enum DotExpFlag
 {
+    none    = 0,
     gag     = 1,    // don't report "not a property" error and just return null
     noDeref = 2,    // the use of the expression will not attempt a dereference
     noAliasThis = 4, // don't do 'alias this' resolution
@@ -459,7 +461,7 @@ version (IN_LLVM)
             return sizeTy;
         }();
 
-    final extern (D) this(TY ty)
+    final extern (D) this(TY ty) scope
     {
         this.ty = ty;
     }
@@ -2047,14 +2049,16 @@ version (IN_LLVM)
                 t = t.addMod(this.mod);
             return t;
         }
-        if (auto fd = s.isFuncDeclaration())
+        Dsymbol callable = s.isFuncDeclaration();
+        callable = callable ? callable : s.isTemplateDeclaration();
+        if (callable)
         {
-            fd = resolveFuncCall(Loc.initial, null, fd, null, this, null, FuncResolveFlag.quiet);
+            auto fd = resolveFuncCall(Loc.initial, null, callable, null, this, ArgumentList(), FuncResolveFlag.quiet);
             if (!fd || fd.errors || !fd.functionSemantic())
                 return Type.terror;
 
             auto t = fd.type.nextOf();
-            if (!t) // issue 14185
+            if (!t) // https://issues.dlang.org/show_bug.cgi?id=14185
                 return Type.terror;
             t = t.substWildTo(mod == 0 ? MODFlags.mutable : mod);
             return t;
@@ -2068,24 +2072,17 @@ version (IN_LLVM)
         {
             return ed.type;
         }
-        if (auto td = s.isTemplateDeclaration())
-        {
-            assert(td._scope);
-            auto fd = resolveFuncCall(Loc.initial, null, td, null, this, null, FuncResolveFlag.quiet);
-            if (!fd || fd.errors || !fd.functionSemantic())
-                return Type.terror;
-
-            auto t = fd.type.nextOf();
-            if (!t)
-                return Type.terror;
-            t = t.substWildTo(mod == 0 ? MODFlags.mutable : mod);
-            return t;
-        }
 
         //printf("%s\n", s.kind());
         return null;
     }
 
+    /**
+     * Check whether this type has endless `alias this` recursion.
+     * Returns:
+     *   `true` if this type has an `alias this` that can be implicitly
+     *    converted back to this type itself.
+     */
     extern (D) final bool checkAliasThisRec()
     {
         Type tb = toBasetype();
@@ -2458,7 +2455,7 @@ version (IN_LLVM)
             auto hashedname = toHexString(md5hash);
             static assert(hashedname.length < namebuf.length-30);
             name = namebuf.ptr;
-            length = sprintf(name, "_D%lluTypeInfo_%.*s6__initZ",
+            length = snprintf(name, namebuf.length, "_D%lluTypeInfo_%.*s6__initZ",
                 9LU + hashedname.length, cast(int) hashedname.length, hashedname.ptr);
         }
         else
@@ -2468,14 +2465,14 @@ version (IN_LLVM)
         const namelen = 19 + size_t.sizeof * 3 + slice.length + 1;
         name = namelen <= namebuf.length ? namebuf.ptr : cast(char*)Mem.check(malloc(namelen));
 
-        length = sprintf(name, "_D%lluTypeInfo_%.*s6__initZ",
+        length = snprintf(name, namelen, "_D%lluTypeInfo_%.*s6__initZ",
                 cast(ulong)(9 + slice.length), cast(int)slice.length, slice.ptr);
         //printf("%p %s, deco = %s, name = %s\n", this, toChars(), deco, name);
         assert(0 < length && length < namelen); // don't overflow the buffer
 
         }
 
-        auto id = Identifier.idPool(name, length);
+        auto id = Identifier.idPool(name[0 .. length]);
 
         if (name != namebuf.ptr)
             free(name);
@@ -2508,6 +2505,16 @@ version (IN_LLVM)
      *  true if so
      */
     bool hasVoidInitPointers()
+    {
+        return false;
+    }
+
+    /*************************************
+     * Detect if this is an unsafe type because of the presence of `@system` members
+     * Returns:
+     *  true if so
+     */
+    bool hasSystemFields()
     {
         return false;
     }
@@ -2658,6 +2665,8 @@ version (IN_LLVM)
 
         if (t.isimaginary() || t.iscomplex())
         {
+            if (sc.flags & SCOPE.Cfile)
+                return true;            // complex/imaginary not deprecated in C code
             Type rt;
             switch (t.ty)
             {
@@ -3133,7 +3142,7 @@ extern (C++) final class TypeBasic : Type
     const(char)* dstring;
     uint flags;
 
-    extern (D) this(TY ty)
+    extern (D) this(TY ty) scope
     {
         super(ty);
         const(char)* d;
@@ -3845,6 +3854,16 @@ extern (C++) final class TypeSArray : TypeArray
             return next.hasPointers();
     }
 
+    override bool hasSystemFields()
+    {
+        return next.hasSystemFields();
+    }
+
+    override bool hasVoidInitPointers()
+    {
+        return next.hasVoidInitPointers();
+    }
+
     override bool hasInvariant()
     {
         return next.hasInvariant();
@@ -4273,7 +4292,7 @@ extern (C++) final class TypeFunction : TypeNext
         super(Tfunction, treturn);
         //if (!treturn) *(char*)0=0;
         //    assert(treturn);
-        assert(VarArg.none <= pl.varargs && pl.varargs <= VarArg.typesafe);
+        assert(VarArg.none <= pl.varargs && pl.varargs <= VarArg.max);
         this.parameterList = pl;
         this.linkage = linkage;
 
@@ -4560,7 +4579,7 @@ extern (C++) final class TypeFunction : TypeNext
         Parameters* params = parameterList.parameters;
         if (mod & MODFlags.wild)
             params = parameterList.parameters.copy();
-        for (size_t i = 0; i < params.dim; i++)
+        for (size_t i = 0; i < params.length; i++)
         {
             Parameter p = (*params)[i];
             Type t = p.type.substWildTo(m);
@@ -4602,10 +4621,9 @@ extern (C++) final class TypeFunction : TypeNext
         // show qualification when toChars() is the same but types are different
         // https://issues.dlang.org/show_bug.cgi?id=19948
         // when comparing the type with strcmp, we need to drop the qualifier
-        auto at = arg.type.mutableOf().toChars();
-        bool qual = !arg.type.equals(par.type) && strcmp(at, par.type.mutableOf().toChars()) == 0;
-        if (qual)
-            at = arg.type.toPrettyChars(true);
+        bool qual = !arg.type.mutableOf().equals(par.type.mutableOf()) &&
+            strcmp(arg.type.mutableOf().toChars(), par.type.mutableOf().toChars()) == 0;
+        auto at = qual ? arg.type.toPrettyChars(true) : arg.type.toChars();
         OutBuffer buf;
         // only mention rvalue if it's relevant
         const rv = !arg.isLvalue() && par.isReference();
@@ -4629,14 +4647,14 @@ extern (C++) final class TypeFunction : TypeNext
      * Determine match level.
      * Params:
      *      tthis = type of `this` pointer, null if not member function
-     *      args = array of function arguments
+     *      argumentList = arguments to function call
      *      flag = 1: performing a partial ordering match
      *      pMessage = address to store error message, or null
      *      sc = context
      * Returns:
      *      MATCHxxxx
      */
-    extern (D) MATCH callMatch(Type tthis, Expression[] args, int flag = 0, const(char)** pMessage = null, Scope* sc = null)
+    extern (D) MATCH callMatch(Type tthis, ArgumentList argumentList, int flag = 0, const(char)** pMessage = null, Scope* sc = null)
     {
         //printf("TypeFunction::callMatch() %s\n", toChars());
         MATCH match = MATCH.exact; // assume exact match
@@ -4672,8 +4690,7 @@ extern (C++) final class TypeFunction : TypeNext
         }
 
         const nparams = parameterList.length;
-        const nargs = args.length;
-        if (nargs > nparams)
+        if (argumentList.length > nparams)
         {
             if (parameterList.varargs == VarArg.none)
             {
@@ -4687,22 +4704,39 @@ extern (C++) final class TypeFunction : TypeNext
         }
 
         // https://issues.dlang.org/show_bug.cgi?id=22997
-        if (parameterList.varargs == VarArg.none && nparams > nargs && !parameterList[nargs].defaultArg)
+        if (parameterList.varargs == VarArg.none && nparams > argumentList.length && !parameterList.hasDefaultArgs)
         {
             OutBuffer buf;
-            buf.printf("too few arguments, expected `%d`, got `%d`", cast(int)nparams, cast(int)nargs);
+            buf.printf("too few arguments, expected %d, got %d", cast(int)nparams, cast(int)argumentList.length);
             if (pMessage)
                 *pMessage = buf.extractChars();
             return MATCH.nomatch;
         }
+        auto resolvedArgs = resolveNamedArgs(argumentList, pMessage);
+        Expression[] args;
+        if (!resolvedArgs)
+        {
+            if (!pMessage || *pMessage)
+                return MATCH.nomatch;
+
+            // if no message was provided, it was because of overflow which will be diagnosed below
+            match = MATCH.nomatch;
+            args = argumentList.arguments ? (*argumentList.arguments)[] : null;
+        }
+        else
+        {
+            args = (*resolvedArgs)[];
+        }
 
         foreach (u, p; parameterList)
         {
-            if (u == nargs)
+            if (u >= args.length)
                 break;
 
             Expression arg = args[u];
-            assert(arg);
+            if (!arg)
+                continue; // default argument
+
             Type tprm = p.type;
             Type targ = arg.type;
 
@@ -4736,10 +4770,11 @@ extern (C++) final class TypeFunction : TypeNext
             assert(p);
 
             // One or more arguments remain
-            if (u < nargs)
+            if (u < args.length)
             {
                 Expression arg = args[u];
-                assert(arg);
+                if (!arg)
+                    continue; // default argument
                 m = argumentMatchParameter(this, p, arg, wildmatch, flag, sc, pMessage);
             }
             else if (p.defaultArg)
@@ -4748,7 +4783,7 @@ extern (C++) final class TypeFunction : TypeNext
             /* prefer matching the element type rather than the array
              * type when more arguments are present with T[]...
              */
-            if (parameterList.varargs == VarArg.typesafe && u + 1 == nparams && nargs > nparams)
+            if (parameterList.varargs == VarArg.typesafe && u + 1 == nparams && args.length > nparams)
                 goto L1;
 
             //printf("\tm = %d\n", m);
@@ -4763,7 +4798,7 @@ extern (C++) final class TypeFunction : TypeNext
                     // Error message was already generated in `matchTypeSafeVarArgs`
                     return MATCH.nomatch;
                 }
-                if (pMessage && u >= nargs)
+                if (pMessage && u >= args.length)
                     *pMessage = getMatchError("missing argument for parameter #%d: `%s`",
                         u + 1, parameterToChars(p, this, false));
                 // If an error happened previously, `pMessage` was already filled
@@ -4776,14 +4811,95 @@ extern (C++) final class TypeFunction : TypeNext
                 match = m; // pick worst match
         }
 
-        if (pMessage && !parameterList.varargs && nargs > nparams)
+        if (pMessage && !parameterList.varargs && args.length > nparams)
         {
             // all parameters had a match, but there are surplus args
-            *pMessage = getMatchError("expected %d argument(s), not %d", nparams, nargs);
+            *pMessage = getMatchError("expected %d argument(s), not %d", nparams, args.length);
             return MATCH.nomatch;
         }
         //printf("match = %d\n", match);
         return match;
+    }
+
+    /********************************
+     * Convert an `argumentList`, which may contain named arguments, into
+     * a list of arguments in the order of the parameter list.
+     *
+     * Params:
+     *      argumentList = array of function arguments
+     *      pMessage = address to store error message, or `null`
+     * Returns: re-ordered argument list, or `null` on error
+     */
+    extern(D) Expressions* resolveNamedArgs(ArgumentList argumentList, const(char)** pMessage)
+    {
+        Expression[] args = argumentList.arguments ? (*argumentList.arguments)[] : null;
+        Identifier[] names = argumentList.names ? (*argumentList.names)[] : null;
+        auto newArgs = new Expressions(parameterList.length);
+        newArgs.zero();
+        size_t ci = 0;
+        bool hasNamedArgs = false;
+        foreach (i, arg; args)
+        {
+            if (!arg)
+            {
+                ci++;
+                continue;
+            }
+            auto name = i < names.length ? names[i] : null;
+            if (name)
+            {
+                hasNamedArgs = true;
+                const pi = findParameterIndex(name);
+                if (pi == -1)
+                {
+                    if (pMessage)
+                        *pMessage = getMatchError("no parameter named `%s`", name.toChars());
+                    return null;
+                }
+                ci = pi;
+            }
+            if (ci >= newArgs.length)
+            {
+                if (!parameterList.varargs)
+                {
+                    // Without named args, let the caller diagnose argument overflow
+                    if (hasNamedArgs && pMessage)
+                        *pMessage = getMatchError("argument `%s` goes past end of parameter list", arg.toChars());
+                    return null;
+                }
+                while (ci >= newArgs.length)
+                    newArgs.push(null);
+            }
+
+            if ((*newArgs)[ci])
+            {
+                if (pMessage)
+                    *pMessage = getMatchError("parameter `%s` assigned twice", parameterList[ci].toChars());
+                return null;
+            }
+            (*newArgs)[ci++] = arg;
+        }
+        foreach (i, arg; (*newArgs)[])
+        {
+            if (arg || parameterList[i].defaultArg)
+                continue;
+
+            if (parameterList.varargs != VarArg.none && i + 1 == newArgs.length)
+                continue;
+
+            if (pMessage)
+                *pMessage = getMatchError("missing argument for parameter #%d: `%s`",
+                    i + 1, parameterToChars(parameterList[i], this, false));
+            return null;
+        }
+        // strip trailing nulls from default arguments
+        size_t e = newArgs.length;
+        while (e > 0 && (*newArgs)[e - 1] is null)
+        {
+            --e;
+        }
+        newArgs.setDim(e);
+        return newArgs;
     }
 
     /+
@@ -4847,7 +4963,7 @@ extern (C++) final class TypeFunction : TypeNext
         }
         if (tb.ty == Ttuple)
         {
-            error(loc, "functions cannot return a tuple");
+            error(loc, "functions cannot return a sequence (use `std.typecons.Tuple`)");
             next = Type.terror;
         }
         if (!isref && (tb.ty == Tstruct || tb.ty == Tsarray))
@@ -4874,9 +4990,18 @@ extern (C++) final class TypeFunction : TypeNext
     }
 
     /// Returns: whether `this` function type has the same attributes (`@safe`,...) as `other`
-    bool attributesEqual(const scope TypeFunction other) const pure nothrow @safe @nogc
+    extern (D) bool attributesEqual(const scope TypeFunction other, bool trustSystemEqualsDefault = true) const pure nothrow @safe @nogc
     {
-        return this.trust == other.trust &&
+        // @@@DEPRECATED_2.112@@@
+        // See semantic2.d Semantic2Visitor.visit(FuncDeclaration):
+        // Two overloads that are identical except for one having an explicit `@system`
+        // attribute is currently in deprecation, and will become an error in 2.104 for
+        // `extern(C)`, and 2.112 for `extern(D)` code respectively. Once the deprecation
+        // period has passed, the trustSystemEqualsDefault=true behaviour should be made
+        // the default, then we can remove the `cannot overload extern(...) function`
+        // errors as they will become dead code as a result.
+        return (this.trust == other.trust ||
+                (trustSystemEqualsDefault && this.trust <= TRUST.system && other.trust <= TRUST.system)) &&
                 this.purity == other.purity &&
                 this.isnothrow == other.isnothrow &&
                 this.isnogc == other.isnogc &&
@@ -4886,6 +5011,23 @@ extern (C++) final class TypeFunction : TypeNext
     override void accept(Visitor v)
     {
         v.visit(this);
+    }
+
+    /**
+     * Look for the index of parameter `ident` in the parameter list
+     *
+     * Params:
+     *   ident = identifier of parameter to search for
+     * Returns: index of parameter with name `ident` or -1 if not found
+     */
+    private extern(D) ptrdiff_t findParameterIndex(Identifier ident)
+    {
+        foreach (i, p; this.parameterList)
+        {
+            if (p.ident == ident)
+                return i;
+        }
+        return -1;
     }
 }
 
@@ -4986,7 +5128,7 @@ extern (C++) final class TypeDelegate : TypeNext
  * This is a shell containing a TraitsExp that can be
  * either resolved to a type or to a symbol.
  *
- * The point is to allow AliasDeclarationY to use `__traits()`, see issue 7804.
+ * The point is to allow AliasDeclarationY to use `__traits()`, see https://issues.dlang.org/show_bug.cgi?id=7804.
  */
 extern (C++) final class TypeTraits : Type
 {
@@ -5112,8 +5254,8 @@ extern (C++) abstract class TypeQualified : Type
     final void syntaxCopyHelper(TypeQualified t)
     {
         //printf("TypeQualified::syntaxCopyHelper(%s) %s\n", t.toChars(), toChars());
-        idents.setDim(t.idents.dim);
-        for (size_t i = 0; i < idents.dim; i++)
+        idents.setDim(t.idents.length);
+        for (size_t i = 0; i < idents.length; i++)
         {
             RootObject id = t.idents[i];
             with (DYNCAST) final switch (id.dyncast())
@@ -5255,7 +5397,7 @@ extern (C++) final class TypeInstance : TypeQualified
 
     override TypeInstance syntaxCopy()
     {
-        //printf("TypeInstance::syntaxCopy() %s, %d\n", toChars(), idents.dim);
+        //printf("TypeInstance::syntaxCopy() %s, %d\n", toChars(), idents.length);
         auto t = new TypeInstance(loc, tempinst.syntaxCopy(null));
         t.syntaxCopyHelper(this);
         t.mod = mod;
@@ -5436,7 +5578,7 @@ extern (C++) final class TypeStruct : Type
 
         auto structelems = new Expressions(sym.nonHiddenFields());
         uint offset = 0;
-        foreach (j; 0 .. structelems.dim)
+        foreach (j; 0 .. structelems.length)
         {
             VarDeclaration vd = sym.fields[j];
             Expression e;
@@ -5491,7 +5633,7 @@ extern (C++) final class TypeStruct : Type
         /* If any of the fields are const or immutable,
          * then one cannot assign this struct.
          */
-        for (size_t i = 0; i < sym.fields.dim; i++)
+        for (size_t i = 0; i < sym.fields.length; i++)
         {
             VarDeclaration v = sym.fields[i];
             //printf("%s [%d] v = (%s) %s, v.offset = %d, v.parent = %s\n", sym.toChars(), i, v.kind(), v.toChars(), v.offset, v.parent.kind());
@@ -5545,7 +5687,7 @@ extern (C++) final class TypeStruct : Type
         if (sym.isNested())
             return true;
 
-        for (size_t i = 0; i < sym.fields.dim; i++)
+        for (size_t i = 0; i < sym.fields.length; i++)
         {
             VarDeclaration v = sym.fields[i];
             if (!v.isDataseg() && v.type.needsNested())
@@ -5568,6 +5710,13 @@ extern (C++) final class TypeStruct : Type
         sym.size(Loc.initial); // give error for forward references
         sym.determineTypeProperties();
         return sym.hasVoidInitPointers;
+    }
+
+    override bool hasSystemFields()
+    {
+        sym.size(Loc.initial); // give error for forward references
+        sym.determineTypeProperties();
+        return sym.hasSystemFields;
     }
 
     override bool hasInvariant()
@@ -5596,7 +5745,7 @@ extern (C++) final class TypeStruct : Type
                      * allow the conversion.
                      */
                     uint offset = ~0; // dead-store to prevent spurious warning
-                    for (size_t i = 0; i < sym.fields.dim; i++)
+                    for (size_t i = 0; i < sym.fields.length; i++)
                     {
                         VarDeclaration v = sym.fields[i];
                         if (i == 0)
@@ -5854,6 +6003,11 @@ extern (C++) final class TypeEnum : Type
         return memType().hasVoidInitPointers();
     }
 
+    override bool hasSystemFields()
+    {
+        return memType().hasSystemFields();
+    }
+
     override bool hasInvariant()
     {
         return memType().hasInvariant();
@@ -6064,7 +6218,7 @@ extern (C++) final class TypeTuple : Type
         {
             if (arguments)
             {
-                for (size_t i = 0; i < arguments.dim; i++)
+                for (size_t i = 0; i < arguments.length; i++)
                 {
                     Parameter arg = (*arguments)[i];
                     assert(arg && arg.type);
@@ -6080,14 +6234,14 @@ extern (C++) final class TypeTuple : Type
     extern (D) this(Expressions* exps)
     {
         super(Ttuple);
-        auto arguments = new Parameters(exps ? exps.dim : 0);
+        auto arguments = new Parameters(exps ? exps.length : 0);
         if (exps)
         {
-            for (size_t i = 0; i < exps.dim; i++)
+            for (size_t i = 0; i < exps.length; i++)
             {
                 Expression e = (*exps)[i];
                 if (e.type.ty == Ttuple)
-                    e.error("cannot form tuple of tuples");
+                    e.error("cannot form sequence of sequences");
                 auto arg = new Parameter(STC.undefined_, e.type, null, null, null);
                 (*arguments)[i] = arg;
             }
@@ -6142,7 +6296,7 @@ extern (C++) final class TypeTuple : Type
 
     override const(char)* kind() const
     {
-        return "tuple";
+        return "sequence";
     }
 
     override TypeTuple syntaxCopy()
@@ -6161,9 +6315,9 @@ extern (C++) final class TypeTuple : Type
             return true;
         if (auto tt = t.isTypeTuple())
         {
-            if (arguments.dim == tt.arguments.dim)
+            if (arguments.length == tt.arguments.length)
             {
-                for (size_t i = 0; i < tt.arguments.dim; i++)
+                for (size_t i = 0; i < tt.arguments.length; i++)
                 {
                     const Parameter arg1 = (*arguments)[i];
                     Parameter arg2 = (*tt.arguments)[i];
@@ -6182,10 +6336,10 @@ extern (C++) final class TypeTuple : Type
             return MATCH.exact;
         if (auto tt = to.isTypeTuple())
         {
-            if (arguments.dim == tt.arguments.dim)
+            if (arguments.length == tt.arguments.length)
             {
                 MATCH m = MATCH.exact;
-                for (size_t i = 0; i < tt.arguments.dim; i++)
+                for (size_t i = 0; i < tt.arguments.length; i++)
                 {
                     Parameter arg1 = (*arguments)[i];
                     Parameter arg2 = (*tt.arguments)[i];
@@ -6380,6 +6534,7 @@ extern (C++) final class TypeTag : Type
 {
     Loc loc;                /// location of declaration
     TOK tok;                /// TOK.struct_, TOK.union_, TOK.enum_
+    structalign_t packalign; /// alignment of struct/union fields
     Identifier id;          /// tag name identifier
     Type base;              /// base type for enums otherwise null
     Dsymbols* members;      /// members of struct, null if none
@@ -6389,13 +6544,14 @@ extern (C++) final class TypeTag : Type
                             ///   struct S { int a; } s1, *s2;
     MOD mod;                /// modifiers to apply after type is resolved (only MODFlags.const_ at the moment)
 
-    extern (D) this(const ref Loc loc, TOK tok, Identifier id, Type base, Dsymbols* members)
+    extern (D) this(const ref Loc loc, TOK tok, Identifier id, structalign_t packalign, Type base, Dsymbols* members)
     {
         //printf("TypeTag ctor %s %p\n", id ? id.toChars() : "null".ptr, this);
         super(Ttag);
         this.loc = loc;
         this.tok = tok;
         this.id = id;
+        this.packalign = packalign;
         this.base = base;
         this.members = members;
         this.mod = 0;
@@ -6498,6 +6654,28 @@ extern (C++) struct ParameterList
         // Ensure no remaining parameters in `other`
         return !diff && other[idx] is null;
     }
+
+    /// Returns: `true` if any parameter has a default argument
+    extern(D) bool hasDefaultArgs()
+    {
+        foreach (oidx, oparam, eidx, eparam; this)
+        {
+            if (eparam.defaultArg)
+                return true;
+        }
+        return false;
+    }
+
+    // Returns: `true` if any parameter doesn't have a default argument
+    extern(D) bool hasArgsWithoutDefault()
+    {
+        foreach (oidx, oparam, eidx, eparam; this)
+        {
+            if (!eparam.defaultArg)
+                return true;
+        }
+        return false;
+    }
 }
 
 
@@ -6587,8 +6765,8 @@ extern (C++) final class Parameter : ASTNode
         Parameters* params = null;
         if (parameters)
         {
-            params = new Parameters(parameters.dim);
-            for (size_t i = 0; i < params.dim; i++)
+            params = new Parameters(parameters.length);
+            for (size_t i = 0; i < params.length; i++)
                 (*params)[i] = (*parameters)[i].syntaxCopy();
         }
         return params;
@@ -6964,9 +7142,9 @@ bool isCopyable(Type t)
             assert(ctor);
             scope el = new IdentifierExp(Loc.initial, Id.p); // dummy lvalue
             el.type = cast() ts;
-            Expressions args;
+            Expressions* args = new Expressions();
             args.push(el);
-            FuncDeclaration f = resolveFuncCall(Loc.initial, null, ctor, null, cast()ts, &args, FuncResolveFlag.quiet);
+            FuncDeclaration f = resolveFuncCall(Loc.initial, null, ctor, null, cast()ts, ArgumentList(args), FuncResolveFlag.quiet);
             if (!f || f.storage_class & STC.disable)
                 return false;
         }
@@ -7097,7 +7275,7 @@ private extern(D) bool isCopyConstructorCallable (StructDeclaration argStruct,
                 s ~= "pure ";
             if (!f.isSafe() && !f.isTrusted() && sc.setUnsafe())
                 s ~= "@safe ";
-            if (!f.isNogc && sc.func.setGC())
+            if (!f.isNogc && sc.func.setGC(arg.loc, null))
                 s ~= "nogc ";
             if (s)
             {
@@ -7116,7 +7294,7 @@ private extern(D) bool isCopyConstructorCallable (StructDeclaration argStruct,
             {
                 /* Although a copy constructor may exist, no suitable match was found.
                  * i.e: `inout` constructor creates `const` object, not mutable.
-                 * Fallback to using the original generic error before bugzilla 22202.
+                 * Fallback to using the original generic error before https://issues.dlang.org/show_bug.cgi?id=22202.
                  */
                 goto Lnocpctor;
             }
@@ -7375,4 +7553,162 @@ private extern(D) MATCH matchTypeSafeVarArgs(TypeFunction tf, Parameter p,
         if (pMessage && trailingArgs.length) *pMessage = tf.getParamError(trailingArgs[0], p);
         return MATCH.nomatch;
     }
+}
+
+/**
+ * Creates an appropriate vector type for `tv` that will hold one boolean
+ * result for each element of the vector type. The result of vector comparisons
+ * is a single or doubleword mask of all 1s (comparison true) or all 0s
+ * (comparison false). This SIMD mask type does not have an equivalent D type,
+ * however its closest equivalent would be an integer vector of the same unit
+ * size and length.
+ *
+ * Params:
+ *   tv = The `TypeVector` to build a vector from.
+ * Returns:
+ *   A vector type suitable for the result of a vector comparison operation.
+ */
+TypeVector toBooleanVector(TypeVector tv)
+{
+    Type telem = tv.elementType();
+    switch (telem.ty)
+    {
+        case Tvoid:
+        case Tint8:
+        case Tuns8:
+        case Tint16:
+        case Tuns16:
+        case Tint32:
+        case Tuns32:
+        case Tint64:
+        case Tuns64:
+            // No need to build an equivalent mask type.
+            return tv;
+
+        case Tfloat32:
+            telem = Type.tuns32;
+            break;
+
+        case Tfloat64:
+            telem = Type.tuns64;
+            break;
+
+        default:
+            assert(0);
+    }
+
+    TypeSArray tsa = tv.basetype.isTypeSArray();
+    assert(tsa !is null);
+
+    return new TypeVector(new TypeSArray(telem, tsa.dim));
+}
+
+/*************************************************
+ * Dispatch to function based on static type of Type.
+ */
+mixin template VisitType(Result)
+{
+    Result VisitType(Type t)
+    {
+        final switch (t.ty)
+        {
+            case TY.Tvoid:
+            case TY.Tint8:
+            case TY.Tuns8:
+            case TY.Tint16:
+            case TY.Tuns16:
+            case TY.Tint32:
+            case TY.Tuns32:
+            case TY.Tint64:
+            case TY.Tuns64:
+            case TY.Tfloat32:
+            case TY.Tfloat64:
+            case TY.Tfloat80:
+            case TY.Timaginary32:
+            case TY.Timaginary64:
+            case TY.Timaginary80:
+            case TY.Tcomplex32:
+            case TY.Tcomplex64:
+            case TY.Tcomplex80:
+            case TY.Tbool:
+            case TY.Tchar:
+            case TY.Twchar:
+            case TY.Tdchar:
+            case TY.Tint128:
+            case TY.Tuns128:    mixin(visitTYCase("Basic"));
+            case TY.Tarray:     mixin(visitTYCase("DArray"));
+            case TY.Tsarray:    mixin(visitTYCase("SArray"));
+            case TY.Taarray:    mixin(visitTYCase("AArray"));
+            case TY.Tpointer:   mixin(visitTYCase("Pointer"));
+            case TY.Treference: mixin(visitTYCase("Reference"));
+            case TY.Tfunction:  mixin(visitTYCase("Function"));
+            case TY.Tident:     mixin(visitTYCase("Identifier"));
+            case TY.Tclass:     mixin(visitTYCase("Class"));
+            case TY.Tstruct:    mixin(visitTYCase("Struct"));
+            case TY.Tenum:      mixin(visitTYCase("Enum"));
+            case TY.Tdelegate:  mixin(visitTYCase("Delegate"));
+            case TY.Terror:     mixin(visitTYCase("Error"));
+            case TY.Tinstance:  mixin(visitTYCase("Instance"));
+            case TY.Ttypeof:    mixin(visitTYCase("Typeof"));
+            case TY.Ttuple:     mixin(visitTYCase("Tuple"));
+            case TY.Tslice:     mixin(visitTYCase("Slice"));
+            case TY.Treturn:    mixin(visitTYCase("Return"));
+            case TY.Tnull:      mixin(visitTYCase("Null"));
+            case TY.Tvector:    mixin(visitTYCase("Vector"));
+            case TY.Ttraits:    mixin(visitTYCase("Traits"));
+            case TY.Tmixin:     mixin(visitTYCase("Mixin"));
+            case TY.Tnoreturn:  mixin(visitTYCase("Noreturn"));
+            case TY.Ttag:       mixin(visitTYCase("Tag"));
+            case TY.Tnone:      assert(0);
+        }
+    }
+}
+
+/****************************************
+ * CTFE-only helper function for VisitInitializer.
+ * Params:
+ *      handler = string for the name of the visit handler
+ * Returns: boilerplate code for a case
+ */
+pure string visitTYCase(string handler)
+{
+    if (__ctfe)
+    {
+        return
+            "
+            enum isVoid = is(Result == void);
+            auto tx = t.isType"~handler~"();
+            static if (__traits(compiles, visit"~handler~"(tx)))
+            {
+                static if (isVoid)
+                {
+                    visit"~handler~"(tx);
+                    return;
+                }
+                else
+                {
+                    if (Result r = visit"~handler~"(tx))
+                        return r;
+                    return Result.init;
+                }
+            }
+            else static if (__traits(compiles, visitDefaultCase(t)))
+            {
+                static if (isVoid)
+                {
+                    visitDefaultCase(tx);
+                    return;
+                }
+                else
+                {
+                    if (Result r = visitDefaultCase(t))
+                        return r;
+                    return Result.init;
+                }
+            }
+            else
+                static assert(0, "~handler~");
+            ";
+    }
+    assert(0);
 }

@@ -149,6 +149,11 @@ void ArgsBuilder::addLTOGoldPluginFlags(bool requirePlugin) {
     addLdFlag("-plugin-opt=-function-sections");
   if (TO.DataSections)
     addLdFlag("-plugin-opt=-data-sections");
+
+#if LDC_LLVM_VER >= 1600 && LDC_LLVM_VER < 1700
+  // LLVM 16: disable function specializations by default
+  addLdFlag("-plugin-opt=-func-specialization-size-threshold=1000000000");
+#endif
 }
 
 // Returns an empty string when libLTO.dylib was not specified nor found.
@@ -179,6 +184,11 @@ void ArgsBuilder::addDarwinLTOFlags() {
   std::string dylibPath = getLTOdylibPath();
   if (!dylibPath.empty()) {
     addLdFlag("-lto_library", dylibPath);
+
+#if LDC_LLVM_VER >= 1600 && LDC_LLVM_VER < 1700
+    // LLVM 16: disable function specializations by default
+    addLdFlag("-mllvm", "-func-specialization-size-threshold=1000000000");
+#endif
   }
 }
 
@@ -479,6 +489,8 @@ void ArgsBuilder::addSanitizers(const llvm::Triple &triple) {
 
 void ArgsBuilder::build(llvm::StringRef outputPath,
                         const std::vector<std::string> &defaultLibNames) {
+  const auto &triple = *global.params.targetTriple;
+
   // object files
   for (auto objfile : global.params.objfiles) {
     args.push_back(objfile);
@@ -494,7 +506,7 @@ void ArgsBuilder::build(llvm::StringRef outputPath,
 
   // Link with profile-rt library when generating an instrumented binary.
   if (opts::isInstrumentingForPGO()) {
-    addProfileRuntimeLinkFlags(*global.params.targetTriple);
+    addProfileRuntimeLinkFlags(triple);
   }
 
   if (opts::enableDynamicCompile) {
@@ -521,10 +533,10 @@ void ArgsBuilder::build(llvm::StringRef outputPath,
   args.push_back("-o");
   args.push_back(std::string(outputPath));
 
-  addSanitizers(*global.params.targetTriple);
+  addSanitizers(triple);
 
   if (opts::fXRayInstrument) {
-    addXRayLinkFlags(*global.params.targetTriple);
+    addXRayLinkFlags(triple);
   }
 
   // Add LTO link flags before adding the user link switches, such that the user
@@ -559,16 +571,14 @@ void ArgsBuilder::build(llvm::StringRef outputPath,
       addLdFlag("-rpath", rpath);
   }
 
-  if (global.params.targetTriple->getOS() == llvm::Triple::Linux ||
-      (global.params.targetTriple->getOS() == llvm::Triple::FreeBSD &&
-       (useInternalLLDForLinking() ||
-        (!opts::linker.empty() && opts::linker != "bfd") ||
-        (opts::linker.empty() && isLldDefaultLinker())))) {
-    // Make sure we don't do --gc-sections when generating a profile-
-    // instrumented binary. The runtime relies on magic sections, which
-    // would be stripped by gc-section on older version of ld, see bug:
-    // https://sourceware.org/bugzilla/show_bug.cgi?id=19161
-    if (!opts::disableLinkerStripDead && !opts::isInstrumentingForPGO()) {
+  // Make sure we don't do --gc-sections when generating a profile-
+  // instrumented binary. The runtime relies on magic sections, which
+  // would be stripped by gc-section on older version of ld, see bug:
+  // https://sourceware.org/bugzilla/show_bug.cgi?id=19161
+  if (!opts::disableLinkerStripDead && !opts::isInstrumentingForPGO()) {
+    if (triple.isOSBinFormatMachO()) {
+      addLdFlag("-dead_strip");
+    } else {
       addLdFlag("--gc-sections");
     }
   }
@@ -759,10 +769,8 @@ int linkObjToBinaryGcc(llvm::StringRef outputPath,
                                ,
                                CanExitEarly
 #endif
-#if LDC_LLVM_VER >= 1000
                                ,
                                llvm::outs(), llvm::errs()
-#endif
 #if LDC_LLVM_VER >= 1400
                                                  ,
                                CanExitEarly, false
@@ -778,10 +786,8 @@ int linkObjToBinaryGcc(llvm::StringRef outputPath,
                                  ,
                                  CanExitEarly
 #endif
-#if LDC_LLVM_VER >= 1000
                                  ,
                                  llvm::outs(), llvm::errs()
-#endif
 #if LDC_LLVM_VER >= 1400
                                                    ,
                                  CanExitEarly, false
@@ -789,14 +795,12 @@ int linkObjToBinaryGcc(llvm::StringRef outputPath,
       );
     } else if (global.params.targetTriple->isOSBinFormatCOFF()) {
       success = lld::mingw::link(fullArgs
-#if LDC_LLVM_VER >= 1000 && LDC_LLVM_VER < 1400
+#if LDC_LLVM_VER < 1400
                                  ,
                                  CanExitEarly
 #endif
-#if LDC_LLVM_VER >= 1000
                                  ,
                                  llvm::outs(), llvm::errs()
-#endif
 #if LDC_LLVM_VER >= 1400
                                                    ,
                                  CanExitEarly, false
@@ -813,10 +817,8 @@ int linkObjToBinaryGcc(llvm::StringRef outputPath,
                                 ,
                                 CanExitEarly
 #endif
-#if LDC_LLVM_VER >= 1000
                                 ,
                                 llvm::outs(), llvm::errs()
-#endif
 #if LDC_LLVM_VER >= 1400
                                                   ,
                                 CanExitEarly, false
@@ -839,10 +841,10 @@ int linkObjToBinaryGcc(llvm::StringRef outputPath,
   std::unique_ptr<ArgsBuilder> argsBuilder;
   if (global.params.targetTriple->isOSBinFormatWasm()) {
     tool = getProgram("wasm-ld", &opts::linker);
-    argsBuilder = llvm::make_unique<LdArgsBuilder>();
+    argsBuilder = std::make_unique<LdArgsBuilder>();
   } else {
     tool = getGcc();
-    argsBuilder = llvm::make_unique<ArgsBuilder>();
+    argsBuilder = std::make_unique<ArgsBuilder>();
   }
 
   // build arguments
@@ -858,5 +860,6 @@ int linkObjToBinaryGcc(llvm::StringRef outputPath,
   logstr << "\n"; // FIXME where's flush ?
 
   // try to call linker
-  return executeToolAndWait(tool, argsBuilder->args, global.params.verbose);
+  return executeToolAndWait(Loc(), tool, argsBuilder->args,
+                            global.params.verbose);
 }

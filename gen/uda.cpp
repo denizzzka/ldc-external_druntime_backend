@@ -17,15 +17,6 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSwitch.h"
 
-#if LDC_LLVM_VER < 1100
-namespace llvm {
-// Auto-generate:
-// Attribute::AttrKind getAttrKindFromName(StringRef AttrName) { ... }
-#define GET_ATTR_KIND_FROM_NAME
-#include "llvm/IR/Attributes.inc"
-}
-#endif
-
 namespace {
 
 /// Checks whether `moduleDecl` is in the ldc package and it's identifier is
@@ -95,11 +86,11 @@ void checkStructElems(StructLiteralExp *sle, ArrayParam<Type *> elemTypes) {
 /// if it is applied to `sym`, otherwise returns nullptr.
 StructLiteralExp *getMagicAttribute(Dsymbol *sym, const Identifier *id,
                                     const Identifier *from) {
-  if (!sym->userAttribDecl)
+  if (!sym->userAttribDecl())
     return nullptr;
 
   // Loop over all UDAs and early return the expression if a match was found.
-  Expressions *attrs = sym->userAttribDecl->getAttributes();
+  Expressions *attrs = sym->userAttribDecl()->getAttributes();
   expandTuples(attrs);
   for (auto attr : *attrs) {
     if (auto sle = attr->isStructLiteralExp())
@@ -115,12 +106,12 @@ StructLiteralExp *getMagicAttribute(Dsymbol *sym, const Identifier *id,
 /// it is applied to `sym`, otherwise returns nullptr.
 StructLiteralExp *getLastMagicAttribute(Dsymbol *sym, const Identifier *id,
                                         const Identifier *from) {
-  if (!sym->userAttribDecl)
+  if (!sym->userAttribDecl())
     return nullptr;
 
   // Loop over all UDAs and find the last match
   StructLiteralExp *lastMatch = nullptr;
-  Expressions *attrs = sym->userAttribDecl->getAttributes();
+  Expressions *attrs = sym->userAttribDecl()->getAttributes();
   expandTuples(attrs);
   for (auto attr : *attrs) {
     if (auto sle = attr->isStructLiteralExp())
@@ -137,11 +128,11 @@ StructLiteralExp *getLastMagicAttribute(Dsymbol *sym, const Identifier *id,
 void callForEachMagicAttribute(Dsymbol &sym, const Identifier *id,
                                const Identifier *from,
                                std::function<void(StructLiteralExp *)> action) {
-  if (!sym.userAttribDecl)
+  if (!sym.userAttribDecl())
     return;
 
   // Loop over all UDAs and call `action` if a match was found.
-  Expressions *attrs = sym.userAttribDecl->getAttributes();
+  Expressions *attrs = sym.userAttribDecl()->getAttributes();
   expandTuples(attrs);
   for (auto attr : *attrs) {
     if (auto sle = attr->isStructLiteralExp())
@@ -219,7 +210,11 @@ void applyAttrAllocSize(StructLiteralExp *sle, IrFunction *irFunc) {
   if (numArgIdx >= 0) {
     builder.addAllocSizeAttr(llvmSizeIdx, llvmNumIdx);
   } else {
+#if LDC_LLVM_VER < 1600
     builder.addAllocSizeAttr(llvmSizeIdx, llvm::Optional<unsigned>());
+#else
+    builder.addAllocSizeAttr(llvmSizeIdx, std::optional<unsigned>());
+#endif
   }
 
   llvm::Function *func = irFunc->getLLVMFunc();
@@ -238,11 +233,7 @@ void applyAttrLLVMAttr(StructLiteralExp *sle, llvm::AttrBuilder &attrs) {
   llvm::StringRef key = getStringElem(sle, 0);
   llvm::StringRef value = getStringElem(sle, 1);
   if (value.empty()) {
-#if LDC_LLVM_VER >= 1100
     const auto kind = llvm::Attribute::getAttrKindFromName(key);
-#else
-    const auto kind = llvm::getAttrKindFromName(key);
-#endif
     if (kind != llvm::Attribute::None) {
       attrs.addAttribute(kind);
     } else {
@@ -423,9 +414,7 @@ bool parseCallingConvention(llvm::StringRef name,
           .Case("ccc", llvm::CallingConv::C)
           .Case("fastcc", llvm::CallingConv::Fast)
           .Case("coldcc", llvm::CallingConv::Cold)
-#if LDC_LLVM_VER >= 1000
           .Case("cfguard_checkcc", llvm::CallingConv::CFGuard_Check)
-#endif
           .Case("x86_stdcallcc", llvm::CallingConv::X86_StdCall)
           .Case("x86_fastcallcc", llvm::CallingConv::X86_FastCall)
           .Case("x86_regcallcc", llvm::CallingConv::X86_RegCall)
@@ -435,10 +424,8 @@ bool parseCallingConvention(llvm::StringRef name,
           .Case("arm_aapcscc", llvm::CallingConv::ARM_AAPCS)
           .Case("arm_aapcs_vfpcc", llvm::CallingConv::ARM_AAPCS_VFP)
           .Case("aarch64_vector_pcs", llvm::CallingConv::AArch64_VectorCall)
-#if LDC_LLVM_VER >= 1000
           .Case("aarch64_sve_vector_pcs",
                 llvm::CallingConv::AArch64_SVE_VectorCall)
-#endif
           .Case("msp430_intrcc", llvm::CallingConv::MSP430_INTR)
           .Case("avr_intrcc", llvm::CallingConv::AVR_INTR)
           .Case("avr_signalcc", llvm::CallingConv::AVR_SIGNAL)
@@ -473,9 +460,7 @@ bool parseCallingConvention(llvm::StringRef name,
           .Case("amdgpu_ps", llvm::CallingConv::AMDGPU_PS)
           .Case("amdgpu_cs", llvm::CallingConv::AMDGPU_CS)
           .Case("amdgpu_kernel", llvm::CallingConv::AMDGPU_KERNEL)
-#if LDC_LLVM_VER >= 1000
           .Case("tailcc", llvm::CallingConv::Tail)
-#endif
 
           .Case("default", llvm::CallingConv::MaxID - 1)
           .Default(llvm::CallingConv::MaxID);
@@ -489,10 +474,10 @@ bool parseCallingConvention(llvm::StringRef name,
 } // anonymous namespace
 
 void applyVarDeclUDAs(VarDeclaration *decl, llvm::GlobalVariable *gvar) {
-  if (!decl->userAttribDecl)
+  if (!decl->userAttribDecl())
     return;
 
-  Expressions *attrs = decl->userAttribDecl->getAttributes();
+  Expressions *attrs = decl->userAttribDecl()->getAttributes();
   expandTuples(attrs);
   for (auto &attr : *attrs) {
     auto sle = getLdcAttributesStruct(attr);
@@ -531,11 +516,11 @@ void applyVarDeclUDAs(VarDeclaration *decl, llvm::GlobalVariable *gvar) {
 
 void applyFuncDeclUDAs(FuncDeclaration *decl, IrFunction *irFunc) {
   // function UDAs
-  if (decl->userAttribDecl) {
+  if (decl->userAttribDecl()) {
     llvm::Function *func = irFunc->getLLVMFunc();
     assert(func);
 
-    Expressions *attrs = decl->userAttribDecl->getAttributes();
+    Expressions *attrs = decl->userAttribDecl()->getAttributes();
     expandTuples(attrs);
     for (auto &attr : *attrs) {
       auto sle = getLdcAttributesStruct(attr);
@@ -571,7 +556,9 @@ void applyFuncDeclUDAs(FuncDeclaration *decl, IrFunction *irFunc) {
       } else if (ident == Id::udaAssumeUsed) {
         applyAttrAssumeUsed(*gIR, sle, func);
       } else if (ident == Id::udaWeak || ident == Id::udaKernel ||
-                 ident == Id::udaNoSanitize || ident==Id::udaCallingConvention) {
+                 ident == Id::udaNoSanitize ||
+                 ident == Id::udaCallingConvention ||
+                 ident == Id::udaNoSplitStack) {
         // These UDAs are applied elsewhere, thus should silently be ignored here.
       } else if (ident == Id::udaDynamicCompile) {
         irFunc->dynamicCompile = true;
@@ -680,6 +667,12 @@ bool hasKernelAttr(Dsymbol *sym) {
   }
 
   return true;
+}
+
+/// Check whether `fd` has the `@ldc.attributes.noSplitStack` UDA applied.
+bool hasNoSplitStackUDA(FuncDeclaration *fd) {
+  auto sle = getMagicAttribute(fd, Id::udaNoSplitStack, Id::attributes);
+  return sle != nullptr;
 }
 
 /// Creates a mask (for &) of @ldc.attributes.noSanitize UDA applied to the

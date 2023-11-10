@@ -1,6 +1,6 @@
 
 /* Compiler implementation of the D programming language
- * Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * written by Walter Bright
  * https://www.digitalmars.com
  * Distributed under the Boost Software License, Version 1.0.
@@ -125,8 +125,9 @@ enum VarArgValues
 {
     VARARGnone     = 0,  /// fixed number of arguments
     VARARGvariadic = 1,  /// T t, ...)  can be C-style (core.stdc.stdarg) or D-style (core.vararg)
-    VARARGtypesafe = 2   /// T t ...) typesafe https://dlang.org/spec/function.html#typesafe_variadic_functions
+    VARARGtypesafe = 2,  /// T t ...) typesafe https://dlang.org/spec/function.html#typesafe_variadic_functions
                          ///   or https://dlang.org/spec/function.html#typesafe_variadic_functions
+    VARARGKRvariadic = 3 /// K+R C style variadics (no function prototype)
 };
 typedef unsigned char VarArg;
 
@@ -316,6 +317,7 @@ public:
     virtual int hasWild() const;
     virtual bool hasPointers();
     virtual bool hasVoidInitPointers();
+    virtual bool hasSystemFields();
     virtual bool hasInvariant();
     virtual Type *nextOf();
     Type *baseElemOf();
@@ -463,6 +465,8 @@ public:
     MATCH implicitConvTo(Type *to) override;
     Expression *defaultInitLiteral(const Loc &loc) override;
     bool hasPointers() override;
+    bool hasSystemFields() override;
+    bool hasVoidInitPointers() override;
     bool hasInvariant() override;
     bool needsDestruction() override;
     bool needsCopyOrPostblit() override;
@@ -591,7 +595,7 @@ struct ParameterList
     Parameters* parameters;
     StorageClass stc;
     VarArg varargs;
-    bool hasIdentifierList; // true if C identifier-list style
+    d_bool hasIdentifierList; // true if C identifier-list style
 
     size_t length();
     Parameter *operator[](size_t i) { return Parameter::getNth(parameters, i); }
@@ -781,7 +785,7 @@ class TypeStruct final : public Type
 public:
     StructDeclaration *sym;
     AliasThisRec att;
-    bool inuse;
+    d_bool inuse;
 
     static TypeStruct *create(StructDeclaration *sym);
     const char *kind() override;
@@ -799,6 +803,7 @@ public:
     bool needsNested() override;
     bool hasPointers() override;
     bool hasVoidInitPointers() override;
+    bool hasSystemFields() override;
     bool hasInvariant() override;
     MATCH implicitConvTo(Type *to) override;
     MATCH constConv(Type *to) override;
@@ -837,6 +842,7 @@ public:
     bool isZeroInit(const Loc &loc) override;
     bool hasPointers() override;
     bool hasVoidInitPointers() override;
+    bool hasSystemFields() override;
     bool hasInvariant() override;
     Type *nextOf() override;
 

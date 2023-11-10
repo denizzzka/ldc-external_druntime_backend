@@ -5,7 +5,7 @@
  * However, this file will be used to generate the
  * $(LINK2 https://dlang.org/dmd-linux.html, online documentation) and MAN pages.
  *
- * Copyright:   Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright:   Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * Authors:     $(LINK2 https://www.digitalmars.com, Walter Bright)
  * License:     $(LINK2 https://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Source:      $(LINK2 https://github.com/dlang/dmd/blob/master/src/dmd/cli.d, _cli.d)
@@ -220,7 +220,7 @@ version (IN_LLVM) {} else
                     $(LI $(B in): in contracts)
                     $(LI $(B invariant): class/struct invariants)
                     $(LI $(B out): out contracts)
-                    $(LI $(B switch): finalswitch failure checking)
+                    $(LI $(B switch): $(D final switch) failure checking)
                 )
                 $(UL
                     $(LI $(B on) or not specified: specified check is enabled.)
@@ -232,8 +232,8 @@ version (IN_LLVM) {} else
         ),
         Option("checkaction=[D|C|halt|context]",
             "behavior on assert/boundscheck/finalswitch failure",
-            `Sets behavior when an assert fails, and array boundscheck fails,
-             or a final switch errors.
+            `Sets behavior when an assert or an array bounds check fails,
+             or a $(D final switch) errors.
                 $(UL
                     $(LI $(B D): Default behavior, which throws an unrecoverable $(D AssertError).)
                     $(LI $(B C): Calls the C runtime library assert failure function.)
@@ -271,6 +271,12 @@ version (IN_LLVM) {} else
 dmd -cov -unittest myprog.d
 ---
             `,
+        ),
+        Option("cpp=<filename>",
+            "use filename as the name of the C preprocessor to use for ImportC files",
+            `Normally the C preprocessor used by the associated C compiler is used to
+            preprocess ImportC files,
+            this is overridden by the $(TT -cpp) switch.`
         ),
         Option("D",
             "generate documentation",
@@ -394,7 +400,7 @@ dmd -cov -unittest myprog.d
         ),
         Option("Hd=<directory>",
             "write 'header' file to directory",
-            `Write D interface file to $(I dir) directory. $(SWLINK -op)
+            `Write D interface file to $(I directory). $(SWLINK -op)
             can be used if the original package hierarchy should
             be retained.`,
         ),
@@ -429,7 +435,7 @@ dmd -cov -unittest myprog.d
             q"{$(P Enables "include imports" mode, where the compiler will include imported
              modules in the compilation, as if they were given on the command line. By default, when
              this option is enabled, all imported modules are included except those in
-             druntime/phobos. This behavior can be overriden by providing patterns via `-i=<pattern>`.
+             druntime/phobos. This behavior can be overridden by providing patterns via `-i=<pattern>`.
              A pattern of the form `-i=<package>` is an "inclusive pattern", whereas a pattern
              of the form `-i=-<package>` is an "exclusive pattern". Inclusive patterns will include
              all module's whose names match the pattern, whereas exclusive patterns will exclude them.
@@ -439,14 +445,14 @@ dmd -cov -unittest myprog.d
 
              $(P The default behavior of excluding druntime/phobos is accomplished by internally adding a
              set of standard exclusions, namely, `-i=-std -i=-core -i=-etc -i=-object`. Note that these
-             can be overriden with `-i=std -i=core -i=etc -i=object`.)
+             can be overridden with `-i=std -i=core -i=etc -i=object`.)
 
              $(P When a module matches multiple patterns, matches are prioritized by their component length, where
              a match with more components takes priority (i.e. pattern `foo.bar.baz` has priority over `foo.bar`).)
 
              $(P By default modules that don't match any pattern will be included. However, if at
              least one inclusive pattern is given, then modules not matching any pattern will
-             be excluded. This behavior can be overriden by usig `-i=.` to include by default or `-i=-.` to
+             be excluded. This behavior can be overridden by usig `-i=.` to include by default or `-i=-.` to
              exclude by default.)
 
              $(P Note that multiple `-i=...` options are allowed, each one adds a pattern.)}"
@@ -774,6 +780,9 @@ dmd -cov -unittest myprog.d
             $(DT gnu)$(DD 'file:line[:column]: message', conforming to the GNU standard used by gcc and clang.)
             )`,
         ),
+        Option("verror-supplements=<num>",
+            "limit the number of supplemental messages for each error (0 means unlimited)"
+        ),
         Option("verrors=<num>",
             "limit the number of error messages (0 means unlimited)"
         ),
@@ -817,6 +826,11 @@ dmd -cov -unittest myprog.d
             `Enable $(LINK2 $(ROOT_DIR)articles/warnings.html, informational warnings (i.e. compilation
             still proceeds normally))`,
         ),
+        Option("wo",
+            "warnings about use of obsolete features (compilation will continue)",
+            `Enable warnings about use of obsolete features that may be problematic (compilation
+            still proceeds normally)`,
+        ),
         Option("X",
             "generate JSON file"
         ),
@@ -855,7 +869,7 @@ dmd -cov -unittest myprog.d
 
     /// Returns all available reverts
     static immutable reverts = [
-        Feature("dip25", "useDIP25", "revert DIP25 changes https://github.com/dlang/DIPs/blob/master/DIPs/archive/DIP25.md"),
+        Feature("dip25", "useDIP25", "revert DIP25 changes https://github.com/dlang/DIPs/blob/master/DIPs/archive/DIP25.md", true, true),
         Feature("dip1000", "useDIP1000",
                 "revert DIP1000 changes https://github.com/dlang/DIPs/blob/master/DIPs/other/DIP1000.md (Scoped Pointers)"),
         Feature("intpromote", "fix16997", "revert integral promotions for unary + - ~ operators"),
@@ -865,7 +879,7 @@ dmd -cov -unittest myprog.d
     /// Returns all available previews
     static immutable previews = [
         Feature("dip25", "useDIP25",
-            "implement https://github.com/dlang/DIPs/blob/master/DIPs/archive/DIP25.md (Sealed references)"),
+            "implement https://github.com/dlang/DIPs/blob/master/DIPs/archive/DIP25.md (Sealed references)", true, true),
         Feature("dip1000", "useDIP1000",
             "implement https://github.com/dlang/DIPs/blob/master/DIPs/other/DIP1000.md (Scoped Pointers)"),
         Feature("dip1008", "ehnogc",
@@ -892,6 +906,8 @@ dmd -cov -unittest myprog.d
             "allow use of => for methods and top-level functions in addition to lambdas", false, false),
         Feature("fixImmutableConv", "fixImmutableConv",
             "disallow unsound immutable conversions that were formerly incorrectly permitted"),
+        Feature("systemVariables", "systemVariables",
+            "disable access to variables marked '@system' from @safe code"),
     ];
 }
 
@@ -1022,8 +1038,8 @@ version (IN_LLVM) {} else
     /// Options supported by -HC
     enum hcUsage = "Available header generation modes:
   =[h|help|?]           List information on all available choices
-  =silent               Silently ignore non-exern(C[++]) declarations
-  =verbose              Add a comment for ignored non-exern(C[++]) declarations
+  =silent               Silently ignore non-extern(C[++]) declarations
+  =verbose              Add a comment for ignored non-extern(C[++]) declarations
 ";
 
     /// Options supported by -gdwarf

@@ -16,7 +16,7 @@ import core.thread.threadbase;
 import core.thread.context;
 import core.thread.types;
 import core.atomic;
-import core.memory : GC;
+import core.memory : GC, pageSize;
 import core.time;
 import core.exception : onOutOfMemoryError;
 import core.internal.traits : externDFunc;
@@ -1124,8 +1124,8 @@ unittest
 
 unittest
 {
-    // use >PAGESIZE to avoid stack overflow (e.g. in an syscall)
-    auto thr = new Thread(function{}, PAGESIZE + 8 /* stack size aligned for most platforms */).start();
+    // use >pageSize to avoid stack overflow (e.g. in an syscall)
+    auto thr = new Thread(function{}, pageSize + 8 /* stack size aligned for most platforms */).start();
     thr.join();
 }
 
@@ -1618,6 +1618,27 @@ in (fn)
             }}
             asm pure nothrow @nogc { (store ~ " sp, %0") : "=m" (sp); }
         }
+        else version (LoongArch64)
+        {
+            // Callee-save registers, according to LoongArch Calling Convention
+            // https://loongson.github.io/LoongArch-Documentation/LoongArch-ELF-ABI-EN.html
+            size_t[18] regs = void;
+            static foreach (i; 0 .. 8)
+            {{
+                enum int j = i;
+                // save $fs0 - $fs7
+                asm pure nothrow @nogc { ( "fst.d $fs"~j.stringof~", %0") : "=m" (regs[i]); }
+            }}
+            static foreach (i; 0 .. 9)
+            {{
+                enum int j = i;
+                // save $s0 - $s8
+                asm pure nothrow @nogc { ( "st.d $s"~j.stringof~", %0") : "=m" (regs[i + 8]); }
+            }}
+            // save $fp (or $s9) and $sp
+            asm pure nothrow @nogc { ( "st.d $fp, %0") : "=m" (regs[17]); }
+            asm pure nothrow @nogc { ( "st.d $sp, %0") : "=m" (sp); }
+        }
         else
         {
             static assert(false, "Architecture not supported.");
@@ -2107,12 +2128,17 @@ extern (C) void thread_suspendAll() nothrow
         Thread.criticalRegionLock.lock_nothrow();
         scope (exit) Thread.criticalRegionLock.unlock_nothrow();
         size_t cnt;
+        bool suspendedSelf;
         Thread t = ThreadBase.sm_tbeg.toThread;
         while (t)
         {
             auto tn = t.next.toThread;
             if (suspend(t))
+            {
+                if (t is ThreadBase.getThis())
+                    suspendedSelf = true;
                 ++cnt;
+            }
             t = tn;
         }
 
@@ -2120,9 +2146,12 @@ extern (C) void thread_suspendAll() nothrow
         {}
         else version (Posix)
         {
-            // subtract own thread
+            // Subtract own thread if we called suspend() on ourselves.
+            // For example, suspendedSelf would be false if the current
+            // thread ran thread_detachThis().
             assert(cnt >= 1);
-            --cnt;
+            if (suspendedSelf)
+                --cnt;
             // wait for semaphore notifications
             for (; cnt; --cnt)
             {
@@ -3018,8 +3047,8 @@ private size_t adjustStackSize(size_t sz) nothrow @nogc
                            size_t function() @nogc nothrow)();
     }
 
-    // stack size must be a multiple of PAGESIZE
-    sz = ((sz + PAGESIZE - 1) & ~(PAGESIZE - 1));
+    // stack size must be a multiple of pageSize
+    sz = ((sz + pageSize - 1) & ~(pageSize - 1));
 
     return sz;
 }

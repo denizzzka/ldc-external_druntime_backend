@@ -39,3 +39,46 @@ if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LDCPROFDATA_SRC})
 else()
     message(WARNING "ldc-profdata source (${LDCPROFDATA_SRC}) not found")
 endif()
+
+#############################################################################
+# Build timetrace2txt
+set(TIMETRACE2TXT_EXE timetrace2txt)
+set(TIMETRACE2TXT_EXE ${TIMETRACE2TXT_EXE} PARENT_SCOPE) # needed for correctly populating lit.site.cfg.in
+set(TIMETRACE2TXT_EXE_NAME ${PROGRAM_PREFIX}${TIMETRACE2TXT_EXE}${PROGRAM_SUFFIX})
+set(TIMETRACE2TXT_EXE_FULL ${PROJECT_BINARY_DIR}/bin/${TIMETRACE2TXT_EXE_NAME}${CMAKE_EXECUTABLE_SUFFIX})
+set(TIMETRACE2TXT_D_SRC
+    ${PROJECT_SOURCE_DIR}/tools/timetrace2txt.d
+)
+build_d_executable(
+    "${TIMETRACE2TXT_EXE}"
+    "${TIMETRACE2TXT_EXE_FULL}"
+    "${TIMETRACE2TXT_D_SRC}"
+    "${DFLAGS_BUILD_TYPE}"
+    ""
+    ""
+    ""
+    ${COMPILE_D_MODULES_SEPARATELY}
+)
+install(PROGRAMS ${TIMETRACE2TXT_EXE_FULL} DESTINATION ${CMAKE_INSTALL_PREFIX}/bin)
+
+#############################################################################
+# Only build ldc-build-plugin tool for platforms where plugins are actually enabled.
+if(LDC_ENABLE_PLUGINS)
+    configure_file(${PROJECT_SOURCE_DIR}/tools/ldc-build-plugin.d.in ${PROJECT_BINARY_DIR}/ldc-build-plugin.d @ONLY)
+    set(LDC_BUILD_PLUGIN_EXE ldc-build-plugin)
+    set(LDC_BUILD_PLUGIN_EXE ${LDC_BUILD_PLUGIN_EXE} PARENT_SCOPE) # needed for correctly populating lit.site.cfg.in
+    set(LDC_BUILD_PLUGIN_EXE_NAME ${PROGRAM_PREFIX}${LDC_BUILD_PLUGIN_EXE}${PROGRAM_SUFFIX})
+    set(LDC_BUILD_PLUGIN_EXE_FULL ${PROJECT_BINARY_DIR}/bin/${LDC_BUILD_PLUGIN_EXE_NAME}${CMAKE_EXECUTABLE_SUFFIX})
+    build_d_executable(
+        "${LDC_BUILD_PLUGIN_EXE}"
+        "${LDC_BUILD_PLUGIN_EXE_FULL}"
+        "${PROJECT_BINARY_DIR}/ldc-build-plugin.d"
+        "${DFLAGS_BUILD_TYPE}"
+        ""
+        "${PROJECT_SOURCE_DIR}/tools/ldc-build-plugin.d.in"
+        ""
+        ${COMPILE_D_MODULES_SEPARATELY}
+    )
+    install(PROGRAMS ${LDC_BUILD_PLUGIN_EXE_FULL} DESTINATION ${CMAKE_INSTALL_PREFIX}/bin)
+endif()
+

@@ -30,7 +30,6 @@ llvm::LLVMContext& getGlobalContext();
 
 // dynamic memory helpers
 LLValue *DtoNew(const Loc &loc, Type *newtype);
-LLValue *DtoNewStruct(const Loc &loc, TypeStruct *newtype);
 void DtoDeleteMemory(const Loc &loc, DValue *ptr);
 void DtoDeleteStruct(const Loc &loc, DValue *ptr);
 void DtoDeleteClass(const Loc &loc, DValue *inst);
@@ -47,7 +46,6 @@ llvm::AllocaInst *DtoArrayAlloca(Type *type, unsigned arraysize,
                                  const char *name = "");
 llvm::AllocaInst *DtoRawAlloca(LLType *lltype, size_t alignment,
                                const char *name = "");
-LLValue *DtoGcMalloc(const Loc &loc, LLType *lltype, const char *name = "");
 
 LLValue *DtoAllocaDump(DValue *val, const char *name = "");
 LLValue *DtoAllocaDump(DValue *val, int alignment, const char *name = "");

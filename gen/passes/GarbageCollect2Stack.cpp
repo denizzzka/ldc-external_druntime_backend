@@ -71,11 +71,7 @@ void EmitMemSet(IRBuilder<> &B, Value *Dst, Value *Val, Value *Len,
                 const G2StackAnalysis &A) {
   Dst = B.CreateBitCast(Dst, PointerType::getUnqual(B.getInt8Ty()));
 
-#if LDC_LLVM_VER >= 1000
   MaybeAlign Align(1);
-#else
-  unsigned Align = 1;
-#endif
 
   auto CS = B.CreateMemSet(Dst, Val, Len, Align, false /*isVolatile*/);
   if (A.CGNode) {
@@ -95,7 +91,7 @@ static void EmitMemZero(IRBuilder<> &B, Value *Dst, Value *Len,
 
 //namespace {
 
-Value* FunctionInfo::promote(LLCallBasePtr CB, IRBuilder<> &B, const G2StackAnalysis &A) {
+Value* FunctionInfo::promote(CallBase *CB, IRBuilder<> &B, const G2StackAnalysis &A) {
   NumGcToStack++;
 
   auto &BB = CB->getCaller()->getEntryBlock();
@@ -132,7 +128,7 @@ static bool isKnownLessThan(Value *Val, uint64_t Limit, const G2StackAnalysis &A
   return true;
 }
 
-bool TypeInfoFI::analyze(LLCallBasePtr CB, const G2StackAnalysis &A) {
+bool TypeInfoFI::analyze(CallBase *CB, const G2StackAnalysis &A) {
   Value *TypeInfo = CB->getArgOperand(TypeInfoArgNr);
   Ty = A.getTypeFor(TypeInfo, 0);
   if (!Ty) {
@@ -141,7 +137,7 @@ bool TypeInfoFI::analyze(LLCallBasePtr CB, const G2StackAnalysis &A) {
   return A.DL.getTypeAllocSize(Ty) < SizeLimit;
 }
 
-bool ArrayFI::analyze(LLCallBasePtr CB, const G2StackAnalysis &A) {
+bool ArrayFI::analyze(CallBase *CB, const G2StackAnalysis &A) {
   if (!TypeInfoFI::analyze(CB, A)) {
     return false;
   }
@@ -164,17 +160,18 @@ bool ArrayFI::analyze(LLCallBasePtr CB, const G2StackAnalysis &A) {
   return true;
 }
 
-Value* ArrayFI::promote(LLCallBasePtr CB, IRBuilder<> &B, const G2StackAnalysis &A) {
+Value* ArrayFI::promote(CallBase *CB, IRBuilder<> &B, const G2StackAnalysis &A) {
+  IRBuilder<> Builder(B.GetInsertBlock(), B.GetInsertPoint());
+
   // If the allocation is of constant size it's best to put it in the
   // entry block, so do so if we're not already there.
   // For dynamically-sized allocations it's best to avoid the overhead
   // of allocating them if possible, so leave those where they are.
   // While we're at it, update statistics too.
-  const IRBuilderBase::InsertPointGuard savedInsertPoint(B);
   if (isa<Constant>(arrSize)) {
     BasicBlock &Entry = CB->getCaller()->getEntryBlock();
-    if (B.GetInsertBlock() != &Entry) {
-      B.SetInsertPoint(&Entry, Entry.begin());
+    if (Builder.GetInsertBlock() != &Entry) {
+      Builder.SetInsertPoint(&Entry, Entry.begin());
     }
     NumGcToStack++;
   } else {
@@ -182,32 +179,33 @@ Value* ArrayFI::promote(LLCallBasePtr CB, IRBuilder<> &B, const G2StackAnalysis 
   }
 
   // Convert array size to 32 bits if necessary
-  Value *count = B.CreateIntCast(arrSize, B.getInt32Ty(), false);
+  Value *count = Builder.CreateIntCast(arrSize, Builder.getInt32Ty(), false);
   AllocaInst *alloca =
-      B.CreateAlloca(Ty, count, ".nongc_mem"); // FIXME: align?
+      Builder.CreateAlloca(Ty, count, ".nongc_mem"); // FIXME: align?
 
   if (Initialized) {
     // For now, only zero-init is supported.
     uint64_t size = A.DL.getTypeStoreSize(Ty);
     Value *TypeSize = ConstantInt::get(arrSize->getType(), size);
-    // Use the original B to put initialization at the
-    // allocation site.
+    // The initialization must be put at the original source variable
+    // definition location, because it could be in a loop and because
+    // of lifetime start-end annotation.
     Value *Size = B.CreateMul(TypeSize, arrSize);
     EmitMemZero(B, alloca, Size, A);
   }
 
   if (ReturnType == ReturnType::Array) {
     Value *arrStruct = llvm::UndefValue::get(CB->getType());
-    arrStruct = B.CreateInsertValue(arrStruct, arrSize, 0);
+    arrStruct = Builder.CreateInsertValue(arrStruct, arrSize, 0);
     Value *memPtr =
-        B.CreateBitCast(alloca, PointerType::getUnqual(B.getInt8Ty()));
-    arrStruct = B.CreateInsertValue(arrStruct, memPtr, 1);
+        Builder.CreateBitCast(alloca, PointerType::getUnqual(B.getInt8Ty()));
+    arrStruct = Builder.CreateInsertValue(arrStruct, memPtr, 1);
     return arrStruct;
   }
 
   return alloca;
 }
-bool AllocClassFI::analyze(LLCallBasePtr CB, const G2StackAnalysis &A) {
+bool AllocClassFI::analyze(CallBase *CB, const G2StackAnalysis &A) {
   if (CB->arg_size() != 1) {
     return false;
   }
@@ -242,7 +240,7 @@ bool AllocClassFI::analyze(LLCallBasePtr CB, const G2StackAnalysis &A) {
            ->getType();
   return A.DL.getTypeAllocSize(Ty) < SizeLimit;
 }
-bool UntypedMemoryFI::analyze(LLCallBasePtr CB, const G2StackAnalysis &A) {
+bool UntypedMemoryFI::analyze(CallBase *CB, const G2StackAnalysis &A) {
   if (CB->arg_size() < SizeArgNr + 1) {
     return false;
   }
@@ -264,7 +262,7 @@ bool UntypedMemoryFI::analyze(LLCallBasePtr CB, const G2StackAnalysis &A) {
   Ty = llvm::Type::getInt8Ty(CB->getContext());
   return true;
 }
-Value* UntypedMemoryFI::promote(LLCallBasePtr CB, IRBuilder<> &B, const G2StackAnalysis &A) {
+Value* UntypedMemoryFI::promote(CallBase *CB, IRBuilder<> &B, const G2StackAnalysis &A) {
   // If the allocation is of constant size it's best to put it in the
   // entry block, so do so if we're not already there.
   // For dynamically-sized allocations it's best to avoid the overhead
@@ -345,7 +343,7 @@ GarbageCollect2Stack::GarbageCollect2Stack()
       NewArrayT(ReturnType::Array, 0, 1, true), AllocMemory(0) {
 }
 
-static void RemoveCall(LLCallBasePtr CB, const G2StackAnalysis &A) {
+static void RemoveCall(CallBase *CB, const G2StackAnalysis &A) {
   // For an invoke instruction, we insert a branch to the normal target BB
   // immediately before it. Ideally, we would find a way to not invalidate
   // the dominator tree here.
@@ -410,7 +408,7 @@ bool GarbageCollect2Stack::run(Function &F, std::function<DominatorTree& ()> get
      .Case("_d_allocclass",   &AllocClass)
      .Case("_d_allocmemory",  &AllocMemory)
      .Default(nullptr);
-      
+
       // Ignore unknown calls.
       if (!info) {
         continue;

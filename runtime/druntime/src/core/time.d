@@ -18,7 +18,7 @@
     $(LEADINGROW Types)
     $(TR $(TDNW $(LREF Duration)) $(TD Represents a duration of time of weeks
     or less (kept internally as hnsecs). (e.g. 22 days or 700 seconds).))
-    $(TR $(TDNW $(LREF TickDuration)) $(TD Represents a duration of time in
+    $(TR $(TDNW $(LREF TickDuration)) $(TD $(RED DEPRECATED) Represents a duration of time in
     system clock ticks, using the highest precision that the system provides.))
     $(TR $(TDNW $(LREF MonoTime)) $(TD Represents a monotonic timestamp in
     system clock ticks, using the highest precision that the system provides.))
@@ -686,21 +686,21 @@ public:
         $(TR $(TD Duration) $(TD +) $(TD Duration) $(TD -->) $(TD Duration))
         $(TR $(TD Duration) $(TD -) $(TD Duration) $(TD -->) $(TD Duration))
         $(TR $(TD Duration) $(TD %) $(TD Duration) $(TD -->) $(TD Duration))
-        $(TR $(TD Duration) $(TD +) $(TD TickDuration) $(TD -->) $(TD Duration))
-        $(TR $(TD Duration) $(TD -) $(TD TickDuration) $(TD -->) $(TD Duration))
         )
 
         Params:
             rhs = The duration to add to or subtract from this $(D Duration).
       +/
-    Duration opBinary(string op, D)(D rhs) const nothrow @nogc
-        if (((op == "+" || op == "-" || op == "%") && is(immutable D == immutable Duration)) ||
-           ((op == "+" || op == "-") && is(immutable D == immutable TickDuration)))
+    Duration opBinary(string op)(const Duration rhs) const nothrow @nogc
+        if (op == "+" || op == "-" || op == "%")
     {
-        static if (is(immutable D == immutable Duration))
-            return Duration(mixin("_hnsecs " ~ op ~ " rhs._hnsecs"));
-        else
-            return Duration(mixin("_hnsecs " ~ op ~ " rhs.hnsecs"));
+        return Duration(mixin("_hnsecs " ~ op ~ " rhs._hnsecs"));
+    }
+
+    deprecated Duration opBinary(string op)(const TickDuration rhs) const nothrow @nogc
+        if (op == "+" || op == "-")
+    {
+        return Duration(mixin("_hnsecs " ~ op ~ " rhs.hnsecs"));
     }
 
     version (CoreUnittest) unittest
@@ -737,8 +737,15 @@ public:
                 assert((cast(D)Duration(-7)) - (cast(E)Duration(-5)) == Duration(-2));
                 assert((cast(D)Duration(-7)) % (cast(E)Duration(5)) == Duration(-2));
             }
+        }
+    }
 
-            version(none) //FIXME: TickDuration is broken
+    version (DruntimeAbstractRt) {} //FIXME: TickDuration is broken
+    else
+    version (CoreUnittest) deprecated unittest
+    {
+        foreach (D; AliasSeq!(Duration, const Duration, immutable Duration))
+        {
             foreach (T; AliasSeq!(TickDuration, const TickDuration, immutable TickDuration))
             {
                 assertApprox((cast(D)Duration(5)) + cast(T)TickDuration.from!"usecs"(7), Duration(70), Duration(80));
@@ -766,6 +773,8 @@ public:
 
 
     /++
+        $(RED TickDuration is Deprecated)
+
         Adds or subtracts two durations.
 
         The legal types of arithmetic for $(D Duration) using this operator are
@@ -779,15 +788,16 @@ public:
             lhs = The $(D TickDuration) to add to this $(D Duration) or to
                   subtract this $(D Duration) from.
       +/
-    Duration opBinaryRight(string op, D)(D lhs) const nothrow @nogc
+    deprecated Duration opBinaryRight(string op, D)(D lhs) const nothrow @nogc
         if ((op == "+" || op == "-") &&
             is(immutable D == immutable TickDuration))
     {
         return Duration(mixin("lhs.hnsecs " ~ op ~ " _hnsecs"));
     }
 
-    version(none) //FIXME: TickDuration is broken
-    version (CoreUnittest) unittest
+    version (DruntimeAbstractRt) {} //FIXME: TickDuration is broken
+    else
+    version (CoreUnittest) deprecated unittest
     {
         foreach (D; AliasSeq!(Duration, const Duration, immutable Duration))
         {
@@ -827,21 +837,22 @@ public:
         $(TR $(TD Duration) $(TD +) $(TD Duration) $(TD -->) $(TD Duration))
         $(TR $(TD Duration) $(TD -) $(TD Duration) $(TD -->) $(TD Duration))
         $(TR $(TD Duration) $(TD %) $(TD Duration) $(TD -->) $(TD Duration))
-        $(TR $(TD Duration) $(TD +) $(TD TickDuration) $(TD -->) $(TD Duration))
-        $(TR $(TD Duration) $(TD -) $(TD TickDuration) $(TD -->) $(TD Duration))
         )
 
         Params:
             rhs = The duration to add to or subtract from this $(D Duration).
       +/
-    ref Duration opOpAssign(string op, D)(const scope D rhs) nothrow @nogc
-        if (((op == "+" || op == "-" || op == "%") && is(immutable D == immutable Duration)) ||
-           ((op == "+" || op == "-") && is(immutable D == immutable TickDuration)))
+    ref Duration opOpAssign(string op)(const Duration rhs) nothrow @nogc
+        if (op == "+" || op == "-" || op == "%")
     {
-        static if (is(immutable D == immutable Duration))
-            mixin("_hnsecs " ~ op ~ "= rhs._hnsecs;");
-        else
-            mixin("_hnsecs " ~ op ~ "= rhs.hnsecs;");
+        mixin("_hnsecs " ~ op ~ "= rhs._hnsecs;");
+        return this;
+    }
+
+    deprecated ref Duration opOpAssign(string op)(const TickDuration rhs) nothrow @nogc
+        if (op == "+" || op == "-")
+    {
+        mixin("_hnsecs " ~ op ~ "= rhs.hnsecs;");
         return this;
     }
 
@@ -854,13 +865,6 @@ public:
 
             if (actual != expected)
                 throw new AssertError("op assign failed", __FILE__, line);
-        }
-
-        static void test2(string op, E)
-                         (Duration actual, in E rhs, Duration lower, Duration upper, size_t line = __LINE__)
-        {
-            assertApprox(mixin("actual " ~ op ~ " rhs"), lower, upper, "op failed", line);
-            assertApprox(actual, lower, upper, "op assign failed", line);
         }
 
         foreach (E; AliasSeq!(Duration, const Duration, immutable Duration))
@@ -894,7 +898,28 @@ public:
             test1!"%="(Duration(-7), (cast(E)Duration(-5)), Duration(-2));
         }
 
-        version(none) //FIXME: TickDuration is broken
+        version(DruntimeAbstractRt) {} //FIXME: TickDuration is broken
+        else
+        foreach (D; AliasSeq!(const Duration, immutable Duration))
+        {
+            foreach (E; AliasSeq!(Duration, const Duration, immutable Duration))
+            {
+                D lhs = D(120);
+                E rhs = E(120);
+                static assert(!__traits(compiles, lhs += rhs), D.stringof ~ " " ~ E.stringof);
+            }
+        }
+    }
+
+    version (CoreUnittest) deprecated unittest
+    {
+        static void test2(string op, E)
+                         (Duration actual, in E rhs, Duration lower, Duration upper, size_t line = __LINE__)
+        {
+            assertApprox(mixin("actual " ~ op ~ " rhs"), lower, upper, "op failed", line);
+            assertApprox(actual, lower, upper, "op assign failed", line);
+        }
+
         foreach (T; AliasSeq!(TickDuration, const TickDuration, immutable TickDuration))
         {
             test2!"+="(Duration(5), cast(T)TickDuration.from!"usecs"(7), Duration(70), Duration(80));
@@ -920,8 +945,7 @@ public:
 
         foreach (D; AliasSeq!(const Duration, immutable Duration))
         {
-            foreach (E; AliasSeq!(Duration, const Duration, immutable Duration,
-                                   TickDuration, const TickDuration, immutable TickDuration))
+            foreach (E; AliasSeq!(TickDuration, const TickDuration, immutable TickDuration))
             {
                 D lhs = D(120);
                 E rhs = E(120);
@@ -1177,19 +1201,21 @@ public:
 
 
     /++
+        $(RED TickDuration is Deprecated)
+
         Returns a $(LREF TickDuration) with the same number of hnsecs as this
         $(D Duration).
         Note that the conventional way to convert between $(D Duration) and
         $(D TickDuration) is using $(REF to, std,conv), e.g.:
         $(D duration.to!TickDuration())
       +/
-    TickDuration opCast(T)() const nothrow @nogc
+    deprecated TickDuration opCast(T)() const nothrow @nogc
         if (is(immutable T == immutable TickDuration))
     {
         return TickDuration.from!"hnsecs"(_hnsecs);
     }
 
-    version (CoreUnittest) unittest
+    version (CoreUnittest) deprecated unittest
     {
         foreach (D; AliasSeq!(Duration, const Duration, immutable Duration))
         {
@@ -1769,6 +1795,8 @@ version (CoreUnittest) @safe pure nothrow @nogc unittest
 }
 
 /++
+    $(RED TickDuration is DEPRECATED)
+
     Converts a $(D TickDuration) to the given units as either an integral
     value or a floating point value.
 
@@ -1780,6 +1808,7 @@ version (CoreUnittest) @safe pure nothrow @nogc unittest
 
         td    = The TickDuration to convert
   +/
+deprecated("TickDuration has been deprecated, please use Duration or MonoTime instead")
 T to(string units, T, D)(D td) @safe pure nothrow @nogc
     if (is(immutable D == immutable TickDuration) &&
        (units == "seconds" ||
@@ -1811,7 +1840,7 @@ T to(string units, T, D)(D td) @safe pure nothrow @nogc
 }
 
 ///
-unittest
+deprecated unittest
 {
     auto t = TickDuration.from!"seconds"(1000);
 
@@ -1823,7 +1852,7 @@ unittest
     assert(fabs(td - 1000) < 0.001);
 }
 
-unittest
+deprecated unittest
 {
     void testFun(string U)() {
         auto t1v = 1000;
@@ -2782,22 +2811,24 @@ unittest
 
 
 /++
-    $(RED Warning: TickDuration will be deprecated in the near future (once all
-          uses of it in Phobos have been deprecated). Please use
+   $(RED Warning: TickDuration is deprecated. Please use
           $(LREF MonoTime) for the cases where a monotonic timestamp is needed
           and $(LREF Duration) when a duration is needed, rather than using
-          TickDuration. It has been decided that TickDuration is too confusing
-          (e.g. it conflates a monotonic timestamp and a duration in monotonic
-           clock ticks) and that having multiple duration types is too awkward
-          and confusing.)
+          TickDuration.)
 
    Represents a duration of time in system clock ticks.
 
    The system clock ticks are the ticks of the system clock at the highest
    precision that the system provides.
   +/
+deprecated("TickDuration has been deprecated, please use Duration or MonoTime instead")
 struct TickDuration
 {
+deprecated:
+    private static TickDuration TDRvalueOf(TickDuration td)
+    {
+        return td;
+    }
     /++
        The number of ticks that the system clock has in one second.
 
@@ -2837,18 +2868,18 @@ struct TickDuration
 
     version (CoreUnittest) unittest
     {
-        assert(zero == TickDuration(0));
-        assert(TickDuration.max == TickDuration(long.max));
-        assert(TickDuration.min == TickDuration(long.min));
-        assert(TickDuration.min < TickDuration.zero);
-        assert(TickDuration.zero < TickDuration.max);
-        assert(TickDuration.min < TickDuration.max);
-        assert(TickDuration.min - TickDuration(1) == TickDuration.max);
-        assert(TickDuration.max + TickDuration(1) == TickDuration.min);
+        assert((zero == TickDuration(0)) == true);
+        assert((TickDuration.max == TickDuration(long.max)) == true);
+        assert((TickDuration.min == TickDuration(long.min)) == true);
+        assert((TickDuration.min < TickDuration.zero) == true);
+        assert((TickDuration.zero < TickDuration.max) == true);
+        assert((TickDuration.min < TickDuration.max) == true);
+        assert((TickDuration.min - TickDuration(1) == TickDuration.max) == true);
+        assert((TickDuration.max + TickDuration(1) == TickDuration.min) == true);
     }
 
 
-    @trusted shared static this()
+    static pragma(crt_constructor) void time_initializer()
     {
         version (DruntimeAbstractRt)
         {
@@ -3076,12 +3107,12 @@ struct TickDuration
         {
             auto a = TickDuration.currSystemTick;
             auto result = a += cast(T)TickDuration.currSystemTick;
-            assert(a == result);
+            assert((a == result) == true);
             assert(a.to!("seconds", real)() >= 0);
 
             auto b = TickDuration.currSystemTick;
             result = b -= cast(T)TickDuration.currSystemTick;
-            assert(b == result);
+            assert((b == result) == true);
             assert(b.to!("seconds", real)() <= 0);
 
             foreach (U; AliasSeq!(const TickDuration, immutable TickDuration))
@@ -3140,11 +3171,11 @@ struct TickDuration
     {
         foreach (T; AliasSeq!(TickDuration, const TickDuration, immutable TickDuration))
         {
-            assert(-(cast(T)TickDuration(7)) == TickDuration(-7));
-            assert(-(cast(T)TickDuration(5)) == TickDuration(-5));
-            assert(-(cast(T)TickDuration(-7)) == TickDuration(7));
-            assert(-(cast(T)TickDuration(-5)) == TickDuration(5));
-            assert(-(cast(T)TickDuration(0)) == TickDuration(0));
+            assert((-(cast(T)TickDuration(7)) == TickDuration(-7)) == true);
+            assert((-(cast(T)TickDuration(5)) == TickDuration(-5)) == true);
+            assert((-(cast(T)TickDuration(-7)) == TickDuration(7)) == true);
+            assert((-(cast(T)TickDuration(-5)) == TickDuration(5)) == true);
+            assert((-(cast(T)TickDuration(0)) == TickDuration(0)) == true);
         }
     }
 
@@ -3166,9 +3197,9 @@ struct TickDuration
             {
                 T t = TickDuration.currSystemTick;
                 U u = t;
-                assert(t == u);
-                assert(rvalueOf(t) == u);
-                assert(t == rvalueOf(u));
+                assert((t == u) == true);
+                assert((TDRvalueOf(t) == u) == true);
+                assert((t == TDRvalueOf(u)) == true);
             }
         }
 
@@ -3178,20 +3209,20 @@ struct TickDuration
             {
                 T t = TickDuration.currSystemTick;
                 U u = t + t;
-                assert(t < u);
-                assert(t <= t);
-                assert(u > t);
-                assert(u >= u);
+                assert((t < u) == true);
+                assert((t <= t) == true);
+                assert((u > t) == true);
+                assert((u >= u) == true);
 
-                assert(rvalueOf(t) < u);
-                assert(rvalueOf(t) <= t);
-                assert(rvalueOf(u) > t);
-                assert(rvalueOf(u) >= u);
+                assert((TDRvalueOf(t) < u) == true);
+                assert((TDRvalueOf(t) <= t) == true);
+                assert((TDRvalueOf(u) > t) == true);
+                assert((TDRvalueOf(u) >= u) == true);
 
-                assert(t < rvalueOf(u));
-                assert(t <= rvalueOf(t));
-                assert(u > rvalueOf(t));
-                assert(u >= rvalueOf(u));
+                assert((t < TDRvalueOf(u)) == true);
+                assert((t <= TDRvalueOf(t)) == true);
+                assert((u > TDRvalueOf(t)) == true);
+                assert((u >= TDRvalueOf(u)) == true);
             }
         }
     }
@@ -3222,7 +3253,7 @@ struct TickDuration
         TickDuration t1 = curr;
         immutable t2 = curr + curr;
         t1 *= 2;
-        assert(t1 == t2);
+        assert((t1 == t2) == true);
 
         t1 = curr;
         t1 *= 2.0;
@@ -3231,7 +3262,7 @@ struct TickDuration
 
         t1 = curr;
         t1 *= 2.1;
-        assert(t1 > t2);
+        assert((t1 > t2) == true);
 
         foreach (T; AliasSeq!(const TickDuration, immutable TickDuration))
         {
@@ -3273,7 +3304,7 @@ struct TickDuration
         immutable t1 = curr;
         TickDuration t2 = curr + curr;
         t2 /= 2;
-        assert(t1 == t2);
+        assert((t1 == t2) == true);
 
         t2 = curr + curr;
         t2 /= 2.0;
@@ -3282,7 +3313,7 @@ struct TickDuration
 
         t2 = curr + curr;
         t2 /= 2.1;
-        assert(t1 > t2);
+        assert((t1 > t2) == true);
 
         _assertThrown!TimeException(t2 /= 0);
 
@@ -3320,10 +3351,10 @@ struct TickDuration
         {
             T t1 = TickDuration.currSystemTick;
             T t2 = t1 + t1;
-            assert(t1 * 2 == t2);
+            assert((t1 * 2 == t2) == true);
             immutable tol = TickDuration(cast(long)(_abs(t1.length) * double.epsilon * 2.0));
             assertApprox(t1 * 2.0, t2 - tol, t2 + tol);
-            assert(t1 * 2.1 > t2);
+            assert((t1 * 2.1 > t2) == true);
         }
     }
 
@@ -3359,12 +3390,12 @@ struct TickDuration
         {
             T t1 = TickDuration.currSystemTick;
             T t2 = t1 + t1;
-            assert(t2 / 2 == t1);
+            assert((t2 / 2 == t1) == true);
             immutable tol = TickDuration(cast(long)(_abs(t2.length) * double.epsilon / 2.0));
             assertApprox(t2 / 2.0, t1 - tol, t1 + tol);
-            assert(t2 / 2.1 < t1);
+            assert((t2 / 2.1 < t1) == true);
 
-            _assertThrown!TimeException(t2 / 0);
+            _assertThrownDep!TimeException(t2 / 0);
         }
     }
 
@@ -3470,7 +3501,6 @@ struct TickDuration
         assert(TickDuration.currSystemTick.length > 0);
     }
 }
-
 
 /++
     Generic way of converting between two time units. Conversions to smaller
@@ -3682,6 +3712,7 @@ Duration abs(Duration duration) @safe pure nothrow @nogc
 }
 
 /++ Ditto +/
+deprecated("TickDuration has been deprecated, please use Duration or MonoTime instead")
 TickDuration abs(TickDuration duration) @safe pure nothrow @nogc
 {
     return TickDuration(_abs(duration.length));
@@ -3691,9 +3722,12 @@ unittest
 {
     assert(abs(dur!"msecs"(5)) == dur!"msecs"(5));
     assert(abs(dur!"msecs"(-5)) == dur!"msecs"(5));
+}
 
-    assert(abs(TickDuration(17)) == TickDuration(17));
-    assert(abs(TickDuration(-17)) == TickDuration(17));
+deprecated unittest
+{
+    assert((abs(TickDuration(17)) == TickDuration(17)) == true);
+    assert((abs(TickDuration(-17)) == TickDuration(17)) == true);
 }
 
 
@@ -4028,6 +4062,28 @@ unittest
     }
 }
 
+version (CoreUnittest) deprecated void _assertThrownDep(T : Throwable = Exception, E)
+                                    (lazy E expression,
+                                     string msg = null,
+                                     string file = __FILE__,
+                                     size_t line = __LINE__)
+{
+    bool thrown = false;
+
+    try
+        expression();
+    catch (T t)
+        thrown = true;
+
+    if (!thrown)
+    {
+        immutable tail = msg.length == 0 ? "." : ": " ~ msg;
+
+        throw new AssertError("assertThrown() failed: No " ~ T.stringof ~ " was thrown" ~ tail, file, line);
+    }
+}
+
+
 
 version (CoreUnittest) void assertApprox(D, E)(D actual,
                                           E lower,
@@ -4042,7 +4098,7 @@ version (CoreUnittest) void assertApprox(D, E)(D actual,
         throw new AssertError(msg ~ ": upper: " ~ actual.toString(), __FILE__, line);
 }
 
-version (CoreUnittest) void assertApprox(D, E)(D actual,
+version (CoreUnittest) deprecated void assertApprox(D, E)(D actual,
                                           E lower,
                                           E upper,
                                           string msg = "unittest failure",

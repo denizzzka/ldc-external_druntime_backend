@@ -1,6 +1,106 @@
 # LDC master
 
 #### Big news
+
+#### Platform support
+
+#### Bug fixes
+
+# LDC 1.35.0 (2023-10-15)
+
+#### Big news
+- Frontend, druntime and Phobos are at version [2.105.2+](https://dlang.org/changelog/2.105.0.html). (#4476, #4498, #4513)
+- The Windows installer now supports non-admin installs *without* an explicit `/CURRENTUSER` switch. (#4495)
+
+#### Platform support
+- Initial compiler support for LoongArch64. druntime support is pending. (#4500)
+
+#### Bug fixes
+- ImportC:
+  - Fix `static` linkage. (#4484, #4487)
+  - Make gcc builtins available. (#4483)
+  - Apple: Support weird `asm("_" "<name>")` mangling stuff. (#4485, #4486)
+- AArch64: Fix an ABI-related ICE. (#4489, #4490)
+- Fix GC2Stack optimization regression introduced in v1.24. (#4510, #4511)
+- Fix druntime ABI divergence when compiling with sanitizers support. (#4508, #4509)
+- Windows: Fix an instance of missed backslash-escaping in `-ftime-trace` JSON. (#4506, #4507)
+
+# LDC 1.34.0 (2023-08-26)
+
+#### Big news
+- Frontend, druntime and Phobos are at version [2.104.2](https://dlang.org/changelog/2.104.0.html). (#4440)
+- Support for [LLVM 16](https://releases.llvm.org/16.0.0/docs/ReleaseNotes.html). The prebuilt packages use v16.0.6. (#4411, #4423)
+  - We have come across miscompiles with LLVM 16's newly-enabled-by-default function specializations (on Win64 and macOS). To be on the safe side, LDC disables them by default for all targets via `-func-specialization-size-threshold=1000000000` in `etc/ldc2.conf` (and separately for LTO on Posix platforms). To enable the function specializations, explicitly override it with e.g. `-func-specialization-size-threshold=100` (the LLVM 16 default) and, for LTO on Posix, a similar LTO plugin option in the linker cmdline (see linker cmdline with `-v`).
+
+#### Platform support
+- Supports LLVM 11.0 - 16.0. Support for LLVM 9 and 10 was dropped.
+- 64-bit RISC-V: Now defaults to `-mattr=+m,+a,+f,+d,+c` ('rv64gc' ABI) for non-bare-metal targets, i.e., if the target triple includes a valid operating system. (#4390)
+
+#### Bug fixes
+- Fix function pointers/delegates on Harvard architectures (e.g., AVR). (#4432, #4465)
+
+# LDC 1.33.0 (2023-07-23)
+
+#### Big news
+- Frontend, druntime and Phobos are at version [2.103.1](https://dlang.org/changelog/2.103.0.html), incl. new command-line option `-verror-supplements`. (#4345)
+- The `--plugin` commandline option now also accepts semantic analysis plugins. Semantic analysis plugins are recognized by exporting the symbol: `extern(C) void runSemanticAnalysis(Module m)`. The plugin's `runSemanticAnalysis` function is called for each module, after all other semantic analysis steps (also after DCompute SemA), just before object codegen. (#4430)
+- New tool `ldc-build-plugin` that helps compiling user plugins. It downloads the correct LDC source version (if it's not already available), and calls LDC with the correct commandline flags to build a plugin. (#4430)
+- New commandline option `-femit-local-var-lifetime` that enables variable lifetime (scope) annotation to LLVM IR codegen. Lifetime annotation enables stack memory reuse for local variables with non-overlapping scope. (#4395)
+- C files are now automatically preprocessed using the external C compiler (configurable via `-gcc` or the `CC` environment variable, and `-Xcc` for extra flags). Extra preprocessor flags (e.g., include dirs and manual defines) can be added via new command-line option `-P`. (#4417)
+  - Windows: If `clang-cl.exe` is on `PATH`, it is preferred over Microsoft's `cl.exe` by default (e.g., to avoid printing the C source file name to stderr during preprocessing).
+- Less pedantic checks for conflicting C(++) function declarations when compiling multiple modules to a single object file ('Error: Function type does not match previously declared function with the same mangled name'). The error now only appears if an object file actually references multiple conflicting functions. (#4420)
+- New command-line option `--fcf-protection`, which enables Intel's Control-Flow Enforcement Technology (CET). (#4437)
+
+#### Platform support
+- Supports LLVM 9.0 - 15.0.
+
+#### Bug fixes
+- Handle potential lambda mangle collisions across separately compiled object files (and the linker then silently picking an arbitrary implementation). Lambdas (and their nested global variables) are now internal to each referencing object file (`static` linkage in C). (#4415)
+
+# LDC 1.32.2 (2023-05-12)
+
+#### Big news
+- New command-line option `--fwarn-stack-size=<threshold>` with LLVM 13+. (#4378)
+- New command-line option `--fsplit-stack` for incremental stack allocations, see https://llvm.org/docs/SegmentedStacks.html. (#4379)
+  - New UDA `ldc.attributes.noSplitStack` disables it on a per-function basis. (#4382)
+- New command-line option `--indent` for the `timetrace2txt` tool. (#4391)
+
+#### Bug fixes
+- Fix potentially huge compile slowdowns with `-g` and LLVM 15+. (#4354, #4393)
+- Treat *all* LLVM warnings as regular warnings (e.g., errors with `-w`). Requires LLVM 13+. (#4384)
+
+# LDC 1.32.1 (2023-04-17)
+
+#### Big news
+- The prebuilt Linux packages are now generated on a Ubuntu 20.04 box, so the min required `glibc` version has been raised from 2.26 to 2.31. (#4367)
+
+#### Bug fixes
+- Fix empty `ldc.gccbuiltins_*` modules with LLVM 15+. (#4347, #4350)
+- Fix v1.31 regression wrt. potentially wrong constant pointer offsets. (#4362, #4365)
+- Windows: Fix v1.32 regression wrt. leaking `Throwable.info` backtraces. (#4369)
+- Fix C assert calls for newlib targets. (#4351)
+
+# LDC 1.32.0 (2023-03-12)
+
+#### Big news
+- Frontend, druntime and Phobos are at version [2.102.2](https://dlang.org/changelog/2.102.0.html). (#4323, #4341)
+- LLVM for prebuilt packages bumped to v15.0.7. (#4311)
+- Linker-level dead code elimination is enabled by default for Apple, wasm and *all* ELF targets too now. (#4320)
+- Vector comparisons (==, !=, <, <=, >, >=) now yield a vector mask. Identity comparisons (`is`, `!is`) still yield a scalar `bool`. (3a59ee81)
+- New `timetrace2txt` tool for easier inspection of `--ftime-trace` output. (#4335)
+- `--ftime-trace` now also traces CTFE execution: the start expression of CTFE and function calls during CTFE. (#4339)
+
+#### Platform support
+- Supports LLVM 9.0 - 15.0.
+- Now supports `-mabi` for RISC-V targets. (#4322)
+
+#### Bug fixes
+- GC closures including variables with alignment > 16 bytes are now properly aligned. (ef8ba481)
+- Fix regression with LLVM 13+: some errors in inline assembly don't stop compilation. (#4293, #4331)
+
+# LDC 1.31.0 (2022-02-11)
+
+#### Big news
 - Frontend, druntime and Phobos are at version [2.101.2](https://dlang.org/changelog/2.101.0.html). (#4141, #4279)
 - Bit fields support. (#4015)
 - macOS on Apple M1: linking with `-g` is working again without unaligned pointer warnings/errors. This fixes file:line debug information in exception backtraces (requiring `atos`, a macOS development tool installed with Xcode), without the need to set MACOSX_DEPLOYMENT_TARGET=11 and using a modified LLVM. (#4291)

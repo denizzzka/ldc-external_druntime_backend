@@ -20,12 +20,12 @@ void emitCoverageLinecountInc(const Loc &loc) {
   // Only emit coverage increment for locations in the source of the current
   // module
   // (for example, 'inlined' methods from other source files should be skipped).
-  if (!global.params.cov || !loc.linnum || !loc.filename || !m->d_cover_data ||
-      strcmp(m->srcfile.toChars(), loc.filename) != 0) {
+  if (!global.params.cov || !loc.linnum() || !loc.filename() ||
+      !m->d_cover_data || strcmp(m->srcfile.toChars(), loc.filename()) != 0) {
     return;
   }
 
-  const unsigned line = loc.linnum - 1; // convert to 0-based line# index
+  const unsigned line = loc.linnum() - 1; // convert to 0-based line# index
   assert(line < m->numlines);
 
   IF_LOG Logger::println("Coverage: increment _d_cover_data[%d]", line);
@@ -44,16 +44,17 @@ void emitCoverageLinecountInc(const Loc &loc) {
     // Do an atomic increment, so this works when multiple threads are executed.
     gIR->ir->CreateAtomicRMW(llvm::AtomicRMWInst::Add, ptr, DtoConstUint(1),
 #if LDC_LLVM_VER >= 1300
-                             LLAlign(4),
+                             llvm::Align(4),
 #endif
                              llvm::AtomicOrdering::Monotonic);
     break;
   case opts::CoverageIncrement::nonatomic: {
     // Do a non-atomic increment, user is responsible for correct results with
     // multithreaded execution
-    llvm::LoadInst *load = gIR->ir->CreateAlignedLoad(i32Type, ptr, LLAlign(4));
+    llvm::LoadInst *load =
+        gIR->ir->CreateAlignedLoad(i32Type, ptr, llvm::Align(4));
     llvm::StoreInst *store = gIR->ir->CreateAlignedStore(
-        gIR->ir->CreateAdd(load, DtoConstUint(1)), ptr, LLAlign(4));
+        gIR->ir->CreateAdd(load, DtoConstUint(1)), ptr, llvm::Align(4));
     // add !nontemporal attribute, to inform the optimizer that caching is not
     // needed
     llvm::MDNode *node = llvm::MDNode::get(
@@ -66,7 +67,7 @@ void emitCoverageLinecountInc(const Loc &loc) {
     // Do a boolean set, avoiding a memory read (blocking) and threading issues
     // at the cost of not "counting"
     llvm::StoreInst *store =
-        gIR->ir->CreateAlignedStore(DtoConstUint(1), ptr, LLAlign(4));
+        gIR->ir->CreateAlignedStore(DtoConstUint(1), ptr, llvm::Align(4));
     // add !nontemporal attribute, to inform the optimizer that caching is not
     // needed
     llvm::MDNode *node = llvm::MDNode::get(

@@ -57,7 +57,20 @@ static llvm::cl::opt<bool, true> preserveDwarfLineSection(
     llvm::cl::init(false));
 #endif
 
-static const char *getABI(const llvm::Triple &triple) {
+// Returns true if 'feature' is enabled and false otherwise. Handles the
+// case where the feature is specified multiple times ('+m,-m'), and
+// takes the last occurrence.
+bool isFeatureEnabled(const llvm::SmallVectorImpl<llvm::StringRef> &features,
+                      llvm::StringRef feature) {
+  for (auto it = features.rbegin(), end = features.rend(); it != end; ++it) {
+    if (it->substr(1) == feature) {
+      return (*it)[0] == '+';
+    }
+  }
+  return false;
+};
+
+const char *getABI(const llvm::Triple &triple, const llvm::SmallVectorImpl<llvm::StringRef> &features) {
   llvm::StringRef ABIName(opts::mABI);
   if (ABIName != "") {
     switch (triple.getArch()) {
@@ -88,6 +101,40 @@ static const char *getABI(const llvm::Triple &triple) {
       if (ABIName.startswith("elfv2"))
         return "elfv2";
       break;
+    case llvm::Triple::riscv64:
+      if (ABIName.startswith("lp64f"))
+        return "lp64f";
+      if (ABIName.startswith("lp64d"))
+        return "lp64d";
+      if (ABIName.startswith("lp64"))
+        return "lp64";
+      break;
+    case llvm::Triple::riscv32:
+      if (ABIName.startswith("ilp32f"))
+        return "ilp32f";
+      if (ABIName.startswith("ilp32d"))
+        return "ilp32d";
+      if (ABIName.startswith("ilp32"))
+        return "ilp32";
+      break;
+#if LDC_LLVM_VER >= 1600
+    case llvm::Triple::loongarch32:
+      if (ABIName.startswith("ilp32s"))
+        return "ilp32s";
+      if (ABIName.startswith("ilp32f"))
+        return "ilp32f";
+      if (ABIName.startswith("ilp32d"))
+        return "ilp32d";
+      break;
+    case llvm::Triple::loongarch64:
+      if (ABIName.startswith("lp64f"))
+        return "lp64f";
+      if (ABIName.startswith("lp64d"))
+        return "lp64d";
+      if (ABIName.startswith("lp64s"))
+        return "lp64s";
+      break;
+#endif // LDC_LLVM_VER >= 1600
     default:
       break;
     }
@@ -104,7 +151,27 @@ static const char *getABI(const llvm::Triple &triple) {
   case llvm::Triple::ppc64le:
     return "elfv2";
   case llvm::Triple::riscv64:
+    if (isFeatureEnabled(features, "d"))
+      return "lp64d";
+    if (isFeatureEnabled(features, "f"))
+      return "lp64f";
+    return "lp64";
+  case llvm::Triple::riscv32:
+    return "ilp32";
+#if LDC_LLVM_VER >= 1600
+  case llvm::Triple::loongarch32:
+    if (isFeatureEnabled(features, "d"))
+      return "ilp32d";
+    if (isFeatureEnabled(features, "f"))
+      return "ilp32f";
+    return "ilp32s";
+  case llvm::Triple::loongarch64:
+    if (isFeatureEnabled(features, "d"))
+      return "lp64d";
+    if (isFeatureEnabled(features, "f"))
+      return "lp64f";
     return "lp64d";
+#endif // LDC_LLVM_VER >= 1600
   default:
     return "";
   }
@@ -185,9 +252,11 @@ static std::string getARMTargetCPU(const llvm::Triple &triple) {
 }
 
 static std::string getAArch64TargetCPU(const llvm::Triple &triple) {
+#if LDC_LLVM_VER < 1600
   auto defaultCPU = llvm::AArch64::getDefaultCPU(triple.getArchName());
   if (!defaultCPU.empty())
     return std::string(defaultCPU);
+#endif
 
   return "generic";
 }
@@ -198,6 +267,14 @@ static std::string getRiscv32TargetCPU(const llvm::Triple &triple) {
 
 static std::string getRiscv64TargetCPU(const llvm::Triple &triple) {
   return "generic-rv64";
+}
+
+static std::string getLoongArch32TargetCPU(const llvm::Triple &triple) {
+  return "generic-la32";
+}
+
+static std::string getLoongArch64TargetCPU(const llvm::Triple &triple) {
+  return "generic-la64";
 }
 
 /// Returns the LLVM name of the default CPU for the provided target triple.
@@ -221,6 +298,12 @@ static std::string getTargetCPU(const llvm::Triple &triple) {
     return getRiscv32TargetCPU(triple);
   case llvm::Triple::riscv64:
     return getRiscv64TargetCPU(triple);
+#if LDC_LLVM_VER >= 1600
+  case llvm::Triple::loongarch32:
+    return getLoongArch32TargetCPU(triple);
+  case llvm::Triple::loongarch64:
+    return getLoongArch64TargetCPU(triple);
+#endif // LDC_LLVM_VER >= 1600
   }
 }
 
@@ -421,10 +504,23 @@ createTargetMachine(const std::string targetTriple, const std::string arch,
     features.push_back("+cx16");
   }
 
-  if (triple.getArch() == llvm::Triple::riscv64 && !hasFeature("d")) {
-    // Support Double-Precision Floating-Point by default.
-    features.push_back("+d");
+  // For a hosted RISC-V 64-bit target default to rv64gc if nothing has
+  // been selected
+  if (triple.getArch() == llvm::Triple::riscv64 && features.empty()) {
+    const llvm::StringRef os = triple.getOSName();
+    const bool isFreeStanding = os.empty() || os == "unknown" || os == "none";
+    if (!isFreeStanding) {
+      features = {"+m", "+a", "+f", "+d", "+c"};
+    }
   }
+
+  // For LoongArch 64-bit target default to la64 if nothing has been selected
+  // All current LoongArch targets have 64-bit floating point registers.
+#if LDC_LLVM_VER >= 1600
+  if (triple.getArch() == llvm::Triple::loongarch64 && features.empty()) {
+    features = {"+d"};
+  }
+#endif
 
   // Handle cases where LLVM picks wrong default relocModel
 #if LDC_LLVM_VER >= 1600
@@ -463,7 +559,7 @@ createTargetMachine(const std::string targetTriple, const std::string arch,
       opts::InitTargetOptionsFromCodeGenFlags(triple);
 
   if (targetOptions.MCOptions.ABIName.empty())
-    targetOptions.MCOptions.ABIName = getABI(triple);
+    targetOptions.MCOptions.ABIName = getABI(triple, features);
 
   if (floatABI == FloatABI::Default) {
     switch (triple.getArch()) {
@@ -492,14 +588,14 @@ createTargetMachine(const std::string targetTriple, const std::string arch,
     break;
   }
 
-  // Right now, we only support linker-level dead code elimination on Linux
-  // and FreeBSD using GNU or LLD linkers (based on the --gc-sections flag).
-  // The Apple ld on OS X supports a similar flag (-dead_strip) that doesn't
-  // require emitting the symbols into different sections. The MinGW ld doesn't
-  // seem to support --gc-sections at all.
-  if (!noLinkerStripDead && (triple.getOS() == llvm::Triple::Linux ||
-                             triple.getOS() == llvm::Triple::FreeBSD ||
-                             triple.getOS() == llvm::Triple::Win32)) {
+  // Linker-level dead code elimination for ELF/wasm binaries using GNU or LLD
+  // linkers (based on the --gc-sections flag) requires a separate section per
+  // symbol.
+  // The Apple ld64 on macOS supports a similar flag (-dead_strip) that doesn't
+  // require emitting the symbols into different sections.
+  // On Windows, the MSVC link.exe / lld-link.exe has `/REF`; LLD enforces
+  // separate sections with LTO, so do the same here.
+  if (!noLinkerStripDead && !triple.isOSBinFormatMachO()) {
     targetOptions.FunctionSections = true;
     targetOptions.DataSections = true;
   }

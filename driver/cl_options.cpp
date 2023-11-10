@@ -156,12 +156,18 @@ static cl::opt<MessageStyle, true> verrorStyle(
     cl::desc(
         "Set the style for file/line number annotations on compiler messages"),
     cl::values(
-        clEnumValN(MESSAGESTYLEdigitalmars, "digitalmars",
+        clEnumValN(MessageStyle::digitalmars, "digitalmars",
                    "'file(line[,column]): message' (default)"),
-        clEnumValN(MESSAGESTYLEgnu, "gnu",
+        clEnumValN(MessageStyle::gnu, "gnu",
                    "'file:line[:column]: message', conforming to the GNU "
                    "standard used by gcc and clang")),
-    cl::init(MESSAGESTYLEdigitalmars));
+    cl::init(MessageStyle::digitalmars));
+
+static cl::opt<unsigned, true>
+    verrorSupplements("verror-supplements", cl::ZeroOrMore,
+                      cl::location(global.params.errorSupplementLimit),
+                      cl::desc("Limit the number of supplemental messages for "
+                               "each error (0 means unlimited)"));
 
 static cl::opt<Diagnostic, true> warnings(
     cl::desc("Warnings:"), cl::ZeroOrMore, cl::location(global.params.warnings),
@@ -171,6 +177,10 @@ static cl::opt<Diagnostic, true> warnings(
         clEnumValN(DIAGNOSTICinform, "wi",
                    "Enable warnings as messages (compilation will continue)")),
     cl::init(DIAGNOSTICoff));
+
+static cl::opt<bool, true> warningsObsolete(
+    "wo", cl::ZeroOrMore, cl::location(global.params.obsolete),
+    cl::desc("Enable warnings about use of obsolete features"));
 
 static cl::opt<bool, true> ignoreUnsupportedPragmas(
     "ignore", cl::desc("Ignore unsupported pragmas"), cl::ZeroOrMore,
@@ -338,7 +348,7 @@ static cl::opt<bool, true> unittest("unittest", cl::ZeroOrMore,
 cl::opt<std::string>
     cacheDir("cache",
              cl::desc("Enable compilation cache, using <cache dir> to "
-                      "store cache files (experimental)"),
+                      "store cache files"),
              cl::value_desc("cache dir"), cl::ZeroOrMore);
 
 static StringsAdapter strImpPathStore("J", global.params.fileImppath);
@@ -394,16 +404,18 @@ cl::list<std::string>
                    cl::value_desc("linkerflag"), cl::cat(linkingCategory),
                    cl::Prefix);
 
-cl::list<std::string>
-    ccSwitches("Xcc", cl::desc("Pass <ccflag> to GCC/Clang for linking"),
-               cl::value_desc("ccflag"), cl::cat(linkingCategory));
+cl::list<std::string> ccSwitches(
+    "Xcc", cl::value_desc("ccflag"), cl::cat(linkingCategory),
+    cl::desc("Pass <ccflag> to GCC/Clang for linking/preprocessing"));
 
-cl::opt<std::string>
-    moduleDeps("deps", cl::ValueOptional, cl::ZeroOrMore,
-               cl::value_desc("filename"),
-               cl::desc("Write module dependencies to <filename> (only imports). "
-                        "'-deps' alone prints module dependencies "
-                        "(imports/file/version/debug/lib)"));
+cl::list<std::string> cppSwitches("P", cl::value_desc("cppflag"), cl::Prefix,
+                                  cl::desc("Pass <cppflag> to C preprocessor"));
+
+cl::opt<std::string> moduleDeps(
+    "deps", cl::ValueOptional, cl::ZeroOrMore, cl::value_desc("filename"),
+    cl::desc("Write module dependencies to <filename> (only imports). "
+             "'-deps' alone prints module dependencies "
+             "(imports/file/version/debug/lib)"));
 
 cl::opt<std::string>
     makeDeps("makedeps", cl::ValueOptional, cl::ZeroOrMore,
@@ -419,7 +431,7 @@ cl::opt<std::string> mTargetTriple("mtriple", cl::ZeroOrMore,
                                    cl::desc("Override target triple"));
 
 cl::opt<std::string>
-    mABI("mabi", cl::ZeroOrMore, cl::Hidden, cl::init(""),
+    mABI("mabi", cl::ZeroOrMore, cl::init(""),
          cl::desc("The name of the ABI to be targeted from the backend"));
 
 static Strings *pModFileAliasStrings = &global.params.modFileAliasStrings;
@@ -562,6 +574,10 @@ cl::opt<bool> fNullPointerIsValid(
         "assuming that any dereferenced pointer must not have been null and "
         "optimize away the branches accordingly."));
 
+cl::opt<bool>
+    fSplitStack("fsplit-stack", cl::ZeroOrMore,
+                cl::desc("Use segmented stack (see Clang documentation)"));
+
 cl::opt<bool, true>
     allinst("allinst", cl::ZeroOrMore, cl::location(global.params.allInst),
             cl::desc("Generate code for all template instantiations"));
@@ -663,6 +679,15 @@ cl::opt<std::string>
                            cl::desc("Generate a YAML optimization record file "
                                     "of optimizations performed by LLVM"),
                            cl::ValueOptional);
+
+#if LDC_LLVM_VER >= 1300
+// LLVM < 13 has "--warn-stack-size", but let's not do the effort of forwarding
+// the string to that option, and instead let the user do it himself.
+cl::opt<unsigned>
+    fWarnStackSize("fwarn-stack-size", cl::ZeroOrMore, cl::init(UINT_MAX),
+                   cl::desc("Warn for stack size bigger than the given number"),
+                   cl::value_desc("threshold"));
+#endif
 
 #if LDC_LLVM_SUPPORTED_TARGET_SPIRV || LDC_LLVM_SUPPORTED_TARGET_NVPTX
 cl::list<std::string>
@@ -772,6 +797,7 @@ void hideLLVMOptions() {
       "amdgpu-disable-power-sched", "amdgpu-dpp-combine",
       "amdgpu-dump-hsa-metadata", "amdgpu-enable-flat-scratch",
       "amdgpu-enable-global-sgpr-addr", "amdgpu-enable-merge-m0",
+      "amdgpu-enable-power-sched", "amdgpu-igrouplp",
       "amdgpu-promote-alloca-to-vector-limit",
       "amdgpu-reserve-vgpr-for-sgpr-spill", "amdgpu-sdwa-peephole",
       "amdgpu-use-aa-in-codegen", "amdgpu-verify-hsa-metadata",
@@ -785,21 +811,22 @@ void hideLLVMOptions() {
       "code-model", "cost-kind", "cppfname", "cppfor", "cppgen",
       "cvp-dont-add-nowrap-flags",
       "cvp-dont-process-adds", "debug-counter", "debug-entry-values",
-      "debugger-tune", "debugify-level", "debugify-quiet",
-      "debug-info-correlate",
+      "debugger-tune", "debugify-func-limit", "debugify-level",
+      "debugify-quiet", "debug-info-correlate",
       "denormal-fp-math", "denormal-fp-math-f32", "disable-debug-info-verifier",
       "disable-i2p-p2i-opt",
       "disable-objc-arc-checkforcfghazards", "disable-promote-alloca-to-lds",
       "disable-promote-alloca-to-vector", "disable-slp-vectorization",
       "disable-spill-fusing",
       "do-counter-promotion", "dot-cfg-mssa", "dwarf64", "emit-call-site-info",
+      "emit-dwarf-unwind",
       "emscripten-cxx-exceptions-allowed",
       "emscripten-cxx-exceptions-whitelist",
-      "emulated-tls", "enable-correct-eh-support",
+      "emulated-tls", "enable-approx-func-fp-math", "enable-correct-eh-support",
       "enable-cse-in-irtranslator", "enable-cse-in-legalizer",
       "enable-emscripten-cxx-exceptions", "enable-emscripten-sjlj",
       "enable-fp-mad", "enable-gvn-hoist", "enable-gvn-memdep",
-      "enable-gvn-sink", "enable-implicit-null-checks",
+      "enable-gvn-sink", "enable-implicit-null-checks", "enable-jmc-instrument",
       "enable-load-in-loop-pre",
       "enable-load-pre", "enable-loop-simplifycfg-term-folding",
       "enable-misched", "enable-name-compression", "enable-no-infs-fp-math",
@@ -820,18 +847,21 @@ void hideLLVMOptions() {
       "import-all-index", "incremental-linker-compatible",
       "instcombine-code-sinking", "instcombine-guard-widening-window",
       "instcombine-max-iterations", "instcombine-max-num-phis",
+      "instcombine-max-sink-users",
       "instcombine-maxarray-size", "instcombine-negator-enabled",
       "instcombine-negator-max-depth", "instcombine-unsafe-select-transform",
       "instrprof-atomic-counter-update-all", "internalize-public-api-file",
       "internalize-public-api-list", "iterative-counter-promotion",
       "join-liveintervals", "jump-table-type", "limit-float-precision",
-      "lto-embed-bitcode", "matrix-default-layout", "matrix-propagate-shape",
+      "lower-global-dtors-via-cxa-atexit",
+      "lto-embed-bitcode", "matrix-default-layout",
+      "matrix-print-after-transpose-opt", "matrix-propagate-shape",
       "max-counter-promotions", "max-counter-promotions-per-loop",
       "mc-relax-all", "mc-x86-disable-arith-relaxation", "mcabac", "meabi",
       "memop-size-large", "memop-size-range", "merror-missing-parenthesis",
       "merror-noncontigious-register", "mfuture-regs", "mhvx",
       "mips-compact-branches", "mips16-constant-islands", "mips16-hard-float",
-      "mir-strip-debugify-only", "mlsm", "mno-compound",
+      "mir-strip-debugify-only", "misexpect-tolerance", "mlsm", "mno-compound",
       "mno-fixup", "mno-ldc1-sdc1", "mno-pairing", "mwarn-missing-parenthesis",
       "mwarn-noncontigious-register", "mwarn-sign-mismatch",
       "no-discriminators", "no-type-check", "no-xray-index",
@@ -857,17 +887,18 @@ void hideLLVMOptions() {
       "speculative-counter-promotion-to-loop", "spiller", "spirv-debug",
       "spirv-erase-cl-md", "spirv-lower-const-expr", "spirv-mem2reg",
       "spirv-no-deref-attr", "spirv-text", "spirv-verify-regularize-passes",
-      "split-machine-functions", "spv-lower-saddwithoverflow-validate",
-      "spvbool-validate", "spvmemmove-validate",
-      "stack-alignment", "stack-protector-guard",
+      "split-machine-functions", "spv-dump-deps",
+      "spv-lower-saddwithoverflow-validate", "spvbool-validate",
+      "spvmemmove-validate", "stack-alignment", "stack-protector-guard",
       "stack-protector-guard-offset", "stack-protector-guard-reg",
       "stack-size-section", "stack-symbol-ordering",
       "stackmap-version", "static-func-full-module-prefix",
       "static-func-strip-dirname-prefix", "stats", "stats-json", "strict-dwarf",
-      "strip-debug", "struct-path-tbaa", "summary-file", "swift-async-fp",
+      "strip-debug", "struct-path-tbaa", "summary-file", "sve-tail-folding",
+      "swift-async-fp",
       "tail-predication", "tailcallopt", "thinlto-assume-merged",
       "thread-model", "time-passes", "time-trace-granularity", "tls-size",
-      "unfold-element-atomic-memcpy-max-elements",
+      "type-based-intrinsic-cost", "unfold-element-atomic-memcpy-max-elements",
       "unique-basic-block-section-names", "unique-bb-section-names",
       "unique-section-names", "unit-at-a-time", "use-ctors",
       "vec-extabi", "verify-debug-info", "verify-dom-info",

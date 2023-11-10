@@ -81,13 +81,13 @@ version (LDC) // note: there's a copy for importC in __builtins.di
     version (ARM)     version = ARM_Any;
     version (AArch64) version = ARM_Any;
 
-    // Define a __va_list alias if the platform uses an elaborate type, as it
+    // Define a __va_list[_tag] alias if the platform uses an elaborate type, as it
     // is referenced from implicitly generated code for D-style variadics, etc.
     // LDC does not require people to manually import core.vararg like DMD does.
     version (X86_64)
     {
         version (Win64) {} else
-        public import core.internal.vararg.sysv_x64 : __va_list;
+        alias __va_list_tag = imported!"core.internal.vararg.sysv_x64".__va_list_tag;
     }
     else version (ARM_Any)
     {
@@ -318,8 +318,9 @@ if ((is(LHS : const Object) || is(LHS : const shared Object)) &&
         // If same exact type => one call to method opEquals
         if (typeid(lhs) is typeid(rhs) ||
             !__ctfe && typeid(lhs).opEquals(typeid(rhs)))
-                /* CTFE doesn't like typeid much. 'is' works, but opEquals doesn't
-                (issue 7147). But CTFE also guarantees that equal TypeInfos are
+                /* CTFE doesn't like typeid much. 'is' works, but opEquals doesn't:
+                https://issues.dlang.org/show_bug.cgi?id=7147
+                But CTFE also guarantees that equal TypeInfos are
                 always identical. So, no opEquals needed during CTFE. */
         {
             return true;
@@ -556,7 +557,8 @@ private extern(C) void _d_setSameMutex(shared Object ownee, shared Object owner)
 
 void setSameMutex(shared Object ownee, shared Object owner)
 {
-    _d_setSameMutex(ownee, owner);
+    import core.atomic : atomicLoad;
+    _d_setSameMutex(atomicLoad(ownee), atomicLoad(owner));
 }
 
 @system unittest
@@ -1030,7 +1032,7 @@ class TypeInfo_Enum : TypeInfo
 }
 
 
-@safe unittest // issue 12233
+@safe unittest // https://issues.dlang.org/show_bug.cgi?id=12233
 {
     static assert(is(typeof(TypeInfo.init) == TypeInfo));
     assert(TypeInfo.init is null);
@@ -1465,7 +1467,7 @@ class TypeInfo_Function : TypeInfo
        int func(int a, int b);
     }
 
-    alias functionTypes = typeof(__traits(getVirtualFunctions, C, "func"));
+    alias functionTypes = typeof(__traits(getVirtualMethods, C, "func"));
     assert(typeid(functionTypes[0]).toString() == "void function()");
     assert(typeid(functionTypes[1]).toString() == "void function(int)");
     assert(typeid(functionTypes[2]).toString() == "int function(int, int)");
@@ -1479,7 +1481,7 @@ class TypeInfo_Function : TypeInfo
        void func(int a);
     }
 
-    alias functionTypes = typeof(__traits(getVirtualFunctions, C, "func"));
+    alias functionTypes = typeof(__traits(getVirtualMethods, C, "func"));
 
     Object obj = typeid(functionTypes[0]);
     assert(obj.opEquals(typeid(functionTypes[0])));
@@ -2529,6 +2531,8 @@ class Throwable : Object
         string toString() const;
     }
 
+    alias TraceDeallocator = void function(TraceInfo) nothrow;
+
     string      msg;    /// A message describing the error.
 
     /**
@@ -2548,6 +2552,12 @@ class Throwable : Object
      * foreach) to extract the items in the stack trace (as strings).
      */
     TraceInfo   info;
+
+    /**
+     * If set, this is used to deallocate the TraceInfo on destruction.
+     */
+    TraceDeallocator infoDeallocator;
+
 
     /**
      * A reference to the _next error in the list. This is used when a new
@@ -2662,6 +2672,13 @@ class Throwable : Object
     {
         if (nextInChain && nextInChain._refcount)
             _d_delThrowable(nextInChain);
+        // handle owned traceinfo
+        if (infoDeallocator !is null)
+        {
+            infoDeallocator(info);
+            info = null; // avoid any kind of dangling pointers if we can help
+                         // it.
+        }
     }
 
     /**
@@ -4257,8 +4274,11 @@ void destroy(bool initialize = true, T)(T obj) if (is(T == interface))
     assert(c.s == "S");         // `c.s` is back to its inital state, `"S"`
     assert(c.a.dtorCount == 1); // `c.a`'s destructor was called
     assert(c.a.x == 10);        // `c.a.x` is back to its inital state, `10`
+}
 
-    // check C++ classes work too!
+/// C++ classes work too
+@system unittest
+{
     extern (C++) class CPP
     {
         struct Agg
@@ -4307,6 +4327,34 @@ void destroy(bool initialize = true, T)(T obj) if (is(T == interface))
     assert(i == 1);           // `i` was not initialized
     destroy(i);
     assert(i == 0);           // `i` is back to its initial state `0`
+}
+
+/// Nested struct type
+@system unittest
+{
+    int dtorCount;
+    struct A
+    {
+        int i;
+        ~this()
+        {
+            dtorCount++; // capture local variable
+        }
+    }
+    A a = A(5);
+    destroy!false(a);
+    assert(dtorCount == 1);
+    assert(a.i == 5);
+
+    destroy(a);
+    assert(dtorCount == 2);
+    assert(a.i == 0);
+
+    // the context pointer is now null
+    // restore it so the dtor can run
+    import core.lifetime : emplace;
+    emplace(&a, A(0));
+    // dtor also called here
 }
 
 @system unittest
@@ -4666,12 +4714,17 @@ they are only intended to be instantiated by the compiler, not the user.
 public import core.internal.entrypoint : _d_cmain;
 
 public import core.internal.array.appending : _d_arrayappendT;
-public import core.internal.array.appending : _d_arrayappendTTrace;
+version (D_ProfileGC)
+{
+    public import core.internal.array.appending : _d_arrayappendTTrace;
+    public import core.internal.array.concatenation : _d_arraycatnTXTrace;
+    public import core.lifetime : _d_newitemTTrace;
+}
 public import core.internal.array.appending : _d_arrayappendcTXImpl;
 public import core.internal.array.comparison : __cmp;
 public import core.internal.array.equality : __equals;
 public import core.internal.array.casting: __ArrayCast;
-public import core.internal.array.concatenation : _d_arraycatnTXImpl;
+public import core.internal.array.concatenation : _d_arraycatnTX;
 public import core.internal.array.construction : _d_arrayctor;
 public import core.internal.array.construction : _d_arraysetctor;
 public import core.internal.array.arrayassign : _d_arrayassign_l;
@@ -4692,6 +4745,9 @@ public import core.internal.switch_: __switch_error;
 
 public import core.lifetime : _d_delstructImpl;
 public import core.lifetime : _d_newThrowable;
+public import core.lifetime : _d_newclassT;
+public import core.lifetime : _d_newclassTTrace;
+public import core.lifetime : _d_newitemT;
 
 public @trusted @nogc nothrow pure extern (C) void _d_delThrowable(scope Throwable);
 

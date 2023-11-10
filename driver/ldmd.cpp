@@ -234,7 +234,9 @@ Where:\n\
 #if 0
 "  -os=<os>          sets target operating system to <os>\n"
 #endif
-"  -preview=<name>   enable an upcoming language change identified by 'name'\n\
+"  -P=<preprocessorflag>\n\
+                    pass preprocessorflag to C preprocessor\n\
+  -preview=<name>   enable an upcoming language change identified by 'name'\n\
   -preview=[h|help|?]\n\
                     list all upcoming language changes\n\
   -profile          profile runtime performance of generated code\n"
@@ -259,6 +261,8 @@ Where:\n\
   -vdmd             print the underlying LDC command line\n\
   -verror-style=[digitalmars|gnu]\n\
                     set the style for file/line number annotations on compiler messages\n\
+  -verror-supplements=<num>\n\
+                    limit the number of supplemental messages for each error (0 means unlimited)\n\
   -verrors=<num>    limit the number of error messages (0 means unlimited)\n\
   -verrors=context  show error messages with the context of the erroring source line\n\
   -verrors=spec     show errors from speculative compiles such as __traits(compiles,...)\n\
@@ -271,6 +275,7 @@ Where:\n\
   -vtls             list all variables going into thread local storage\n\
   -w                warnings as errors (compilation will halt)\n\
   -wi               warnings as messages (compilation will continue)\n\
+  -wo               warnings about use of obsolete features (compilation will continue)\n\
   -X                generate JSON file\n\
   -Xf=<filename>    write JSON file to filename\n\
   -Xcc=<driverflag> pass driverflag to linker driver (cc)\n",
@@ -292,7 +297,6 @@ void appendEnvVar(const char *envVarName, std::vector<char *> &args) {
 
   char *env = strdup(envVar.c_str()); // create forever-living copy
 
-  size_t j = 1; // leave argv[0] alone
   while (1) {
     switch (*env) {
     case ' ':
@@ -305,7 +309,6 @@ void appendEnvVar(const char *envVarName, std::vector<char *> &args) {
 
     default:
       args.push_back(env); // append
-      j++;
       char *p = env;
       int slash = 0;
       int instring = 0;
@@ -510,11 +513,7 @@ void translateArgs(const llvm::SmallVectorImpl<const char *> &ldmdArgs,
       } else if (strcmp(p + 1, "gf") == 0) {
         ldcArgs.push_back("-g");
       } else if (strcmp(p + 1, "gs") == 0) {
-#if LDC_LLVM_VER >= 1100
         ldcArgs.push_back("-frame-pointer=all");
-#else
-        ldcArgs.push_back("-disable-fp-elim");
-#endif
       } else if (strcmp(p + 1, "gx") == 0) {
         goto Lnot_in_ldc;
       } else if (strcmp(p + 1, "gt") == 0) {
@@ -563,7 +562,8 @@ void translateArgs(const llvm::SmallVectorImpl<const char *> &ldmdArgs,
           goto Lerror;
         }
       }
-      /* -verror-style
+      /* -verror-supplements
+       * -verror-style
        */
       else if (startsWith(p + 1, "target=")) {
         ldcArgs.push_back(concat("-mtriple=", p + 8));
@@ -594,7 +594,12 @@ void translateArgs(const llvm::SmallVectorImpl<const char *> &ldmdArgs,
        * -revert
        * -w
        * -wi
-       * -O
+       */
+      else if (strcmp(p + 1, "wo") == 0) {
+        ldcArgs.push_back("-wo");
+        ldcArgs.push_back("-wi"); // DMD overrides a previous `-w` to `-wi`; LDC doesn't
+      }
+      /* -O
        * -o-
        * -od
        * -of
@@ -706,6 +711,7 @@ void translateArgs(const llvm::SmallVectorImpl<const char *> &ldmdArgs,
         exit(EXIT_SUCCESS);
       }
       /* -L
+       * -P
        * -defaultlib
        * -debuglib
        * -deps

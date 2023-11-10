@@ -15,7 +15,7 @@
  * - $(LINK2 https://github.com/ldc-developers/ldc, LDC repository)
  * - $(LINK2 https://github.com/D-Programming-GDC/gcc, GDC repository)
  *
- * Copyright:   Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright:   Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * Authors:     $(LINK2 https://www.digitalmars.com, Walter Bright)
  * License:     $(LINK2 https://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Source:      $(LINK2 https://github.com/dlang/dmd/blob/master/src/dmd/target.d, _target.d)
@@ -25,7 +25,7 @@
 
 module dmd.target;
 
-import dmd.globals : Param;
+import dmd.globals : Param, CHECKENABLE;
 
 version (IN_LLVM)
 {
@@ -91,6 +91,198 @@ ubyte defaultTargetOSMajor()
         return 0;
 }
 
+version (IN_LLVM) {} else
+{
+
+/**
+ * Add default `version` identifier for dmd, and set the
+ * target platform in `params`.
+ * https://dlang.org/spec/version.html#predefined-versions
+ *
+ * Needs to be run after all arguments parsing (command line, DFLAGS environment
+ * variable and config file) in order to add final flags (such as `X86_64` or
+ * the `CRuntime` used).
+ *
+ * Params:
+ *      params = which target to compile for (set by `setTarget()`)
+ *      tgt    = target
+ */
+public
+void addDefaultVersionIdentifiers(const ref Param params, const ref Target tgt)
+{
+    import dmd.cond : VersionCondition;
+    import dmd.dmdparams : driverParams, PIC;
+
+    VersionCondition.addPredefinedGlobalIdent("DigitalMars");
+    VersionCondition.addPredefinedGlobalIdent("LittleEndian");
+    VersionCondition.addPredefinedGlobalIdent("D_Version2");
+    VersionCondition.addPredefinedGlobalIdent("all");
+
+    addPredefinedGlobalIdentifiers(tgt);
+
+    if (params.ddoc.doOutput)
+        VersionCondition.addPredefinedGlobalIdent("D_Ddoc");
+    if (params.cov)
+        VersionCondition.addPredefinedGlobalIdent("D_Coverage");
+    if (driverParams.pic != PIC.fixed)
+        VersionCondition.addPredefinedGlobalIdent(driverParams.pic == PIC.pic ? "D_PIC" : "D_PIE");
+    if (params.useUnitTests)
+        VersionCondition.addPredefinedGlobalIdent("unittest");
+    if (params.useAssert == CHECKENABLE.on)
+        VersionCondition.addPredefinedGlobalIdent("assert");
+    if (params.useIn == CHECKENABLE.on)
+        VersionCondition.addPredefinedGlobalIdent("D_PreConditions");
+    if (params.useOut == CHECKENABLE.on)
+        VersionCondition.addPredefinedGlobalIdent("D_PostConditions");
+    if (params.useInvariants == CHECKENABLE.on)
+        VersionCondition.addPredefinedGlobalIdent("D_Invariants");
+    if (params.useArrayBounds == CHECKENABLE.off)
+        VersionCondition.addPredefinedGlobalIdent("D_NoBoundsChecks");
+    if (params.betterC)
+    {
+        VersionCondition.addPredefinedGlobalIdent("D_BetterC");
+    }
+    else
+    {
+        if (params.useModuleInfo)
+            VersionCondition.addPredefinedGlobalIdent("D_ModuleInfo");
+        if (params.useExceptions)
+            VersionCondition.addPredefinedGlobalIdent("D_Exceptions");
+        if (params.useTypeInfo)
+            VersionCondition.addPredefinedGlobalIdent("D_TypeInfo");
+    }
+
+    VersionCondition.addPredefinedGlobalIdent("D_HardFloat");
+
+    if (params.tracegc)
+        VersionCondition.addPredefinedGlobalIdent("D_ProfileGC");
+
+    if (driverParams.optimize)
+        VersionCondition.addPredefinedGlobalIdent("D_Optimized");
+}
+
+// /**
+//  * Add predefined global identifiers that are determied by the target
+//  */
+private
+void addPredefinedGlobalIdentifiers(const ref Target tgt)
+{
+    import dmd.cond : VersionCondition;
+
+    alias predef = VersionCondition.addPredefinedGlobalIdent;
+    if (tgt.cpu >= CPU.sse2)
+    {
+        predef("D_SIMD");
+        if (tgt.cpu >= CPU.avx)
+            predef("D_AVX");
+        if (tgt.cpu >= CPU.avx2)
+            predef("D_AVX2");
+    }
+
+    with (Target)
+    {
+        if (tgt.os & OS.Posix)
+            predef("Posix");
+        if (tgt.os & (OS.linux | OS.FreeBSD | OS.OpenBSD | OS.DragonFlyBSD | OS.Solaris))
+            predef("ELFv1");
+        switch (tgt.os)
+        {
+            case OS.none:         { predef("FreeStanding"); break; }
+            case OS.linux:        { predef("linux");        break; }
+            case OS.OpenBSD:      { predef("OpenBSD");      break; }
+            case OS.DragonFlyBSD: { predef("DragonFlyBSD"); break; }
+            case OS.Solaris:      { predef("Solaris");      break; }
+            case OS.Windows:
+            {
+                 predef("Windows");
+                 VersionCondition.addPredefinedGlobalIdent(tgt.isX86_64 ? "Win64" : "Win32");
+                 break;
+            }
+            case OS.OSX:
+            {
+                predef("OSX");
+                // For legacy compatibility
+                predef("darwin");
+                break;
+            }
+            case OS.FreeBSD:
+            {
+                predef("FreeBSD");
+                switch (tgt.osMajor)
+                {
+                    case 10: predef("FreeBSD_10");  break;
+                    case 11: predef("FreeBSD_11"); break;
+                    case 12: predef("FreeBSD_12"); break;
+                    case 13: predef("FreeBSD_13"); break;
+                    default: predef("FreeBSD_11"); break;
+                }
+                break;
+            }
+            default: assert(0);
+        }
+    }
+
+    addCRuntimePredefinedGlobalIdent(tgt.c);
+    addCppRuntimePredefinedGlobalIdent(tgt.cpp);
+
+    if (tgt.isX86_64)
+    {
+        VersionCondition.addPredefinedGlobalIdent("D_InlineAsm_X86_64");
+        VersionCondition.addPredefinedGlobalIdent("X86_64");
+    }
+    else
+    {
+        VersionCondition.addPredefinedGlobalIdent("D_InlineAsm"); //legacy
+        VersionCondition.addPredefinedGlobalIdent("D_InlineAsm_X86");
+        VersionCondition.addPredefinedGlobalIdent("X86");
+    }
+    if (tgt.isLP64)
+        VersionCondition.addPredefinedGlobalIdent("D_LP64");
+    else if (tgt.isX86_64)
+        VersionCondition.addPredefinedGlobalIdent("X32");
+}
+
+private
+void addCRuntimePredefinedGlobalIdent(const ref TargetC c)
+{
+    import dmd.cond : VersionCondition;
+
+    alias predef = VersionCondition.addPredefinedGlobalIdent;
+    with (TargetC.Runtime) switch (c.runtime)
+    {
+    default:
+    case Unspecified: return;
+    case Bionic:      return predef("CRuntime_Bionic");
+    case DigitalMars: return predef("CRuntime_DigitalMars");
+    case Glibc:       return predef("CRuntime_Glibc");
+    case Microsoft:   return predef("CRuntime_Microsoft");
+    case Musl:        return predef("CRuntime_Musl");
+    case Newlib:      return predef("CRuntime_Newlib");
+    case UClibc:      return predef("CRuntime_UClibc");
+    case WASI:        return predef("CRuntime_WASI");
+    }
+}
+
+private
+void addCppRuntimePredefinedGlobalIdent(const ref TargetCPP cpp)
+{
+    import dmd.cond : VersionCondition;
+
+    alias predef = VersionCondition.addPredefinedGlobalIdent;
+    with (TargetCPP.Runtime) switch (cpp.runtime)
+    {
+    default:
+    case Unspecified: return;
+    case Clang:       return predef("CppRuntime_Clang");
+    case DigitalMars: return predef("CppRuntime_DigitalMars");
+    case Gcc:         return predef("CppRuntime_Gcc");
+    case Microsoft:   return predef("CppRuntime_Microsoft");
+    case Sun:         return predef("CppRuntime_Sun");
+    }
+}
+
+} // !IN_LLVM
+
 ////////////////////////////////////////////////////////////////////////////////
 /**
  * Describes a back-end target. At present it is incomplete, but in the future
@@ -106,7 +298,7 @@ extern (C++) struct Target
     import dmd.dscope : Scope;
     import dmd.expression : Expression;
     import dmd.func : FuncDeclaration;
-    import dmd.globals : Loc;
+    import dmd.location;
     import dmd.astenums : LINK, TY;
     import dmd.mtype : Type, TypeFunction, TypeTuple;
     import dmd.root.ctfloat : real_t;
@@ -167,8 +359,11 @@ version (IN_LLVM)
 
     /// Architecture name
     const(char)[] architectureName;
+version (IN_LLVM) {} else
+{
     CPU cpu = CPU.baseline; // CPU instruction set to target
-    bool is64bit = (size_t.sizeof == 8);  // generate 64 bit code for x86_64; true by default for 64 bit dmd
+    bool isX86_64 = (size_t.sizeof == 8);  // generate 64 bit code for x86_64; true by default for 64 bit dmd
+}
     bool isLP64;            // pointers are 64 bits
 
     // Environmental
@@ -176,7 +371,10 @@ version (IN_LLVM)
     const(char)[] lib_ext;    /// extension for static library files
     const(char)[] dll_ext;    /// extension for dynamic library files
     bool run_noext;           /// allow -run sources without extensions
+version (IN_LLVM) {} else
+{
     bool omfobj = false;      // for Win32: write OMF object files instead of MsCoff
+}
     /**
      * Values representing all properties for floating point types
      */
@@ -245,7 +443,7 @@ else // !IN_LLVM
      */
     extern (C++) void _init(ref const Param params)
     {
-        // is64bit, omfobj and cpu are initialized in parseCommandLine
+        // isX86_64, omfobj and cpu are initialized in parseCommandLine
 
         this.params = &params;
 
@@ -253,7 +451,7 @@ else // !IN_LLVM
         DoubleProperties.initialize();
         RealProperties.initialize();
 
-        isLP64 = is64bit;
+        isLP64 = isX86_64;
 
         // These have default values for 32 bit code, they get
         // adjusted for 64 bit code.
@@ -300,7 +498,7 @@ else // !IN_LLVM
         }
         else
             assert(0);
-        if (is64bit)
+        if (isX86_64)
         {
             if (os & (Target.OS.linux | Target.OS.FreeBSD | Target.OS.OpenBSD | Target.OS.DragonFlyBSD | Target.OS.Solaris))
             {
@@ -314,7 +512,7 @@ else // !IN_LLVM
         cpp.initialize(params, this);
         objc.initialize(params, this);
 
-        if (is64bit)
+        if (isX86_64)
             architectureName = "X86_64";
         else
             architectureName = "X86";
@@ -421,7 +619,7 @@ else // !IN_LLVM
         case TY.Timaginary64:
         case TY.Tcomplex64:
             if (os & Target.OS.Posix)
-                return is64bit ? 8 : 4;
+                return isX86_64 ? 8 : 4;
             break;
         default:
             break;
@@ -440,7 +638,7 @@ else // !IN_LLVM
     {
         const size = type.alignsize();
 
-        if ((is64bit || os == Target.OS.OSX) && (size == 16 || size == 32))
+        if ((isX86_64 || os == Target.OS.OSX) && (size == 16 || size == 32))
             return size;
 
         return (8 < size) ? 8 : size;
@@ -465,7 +663,7 @@ else // !IN_LLVM
         }
         else if (os & Target.OS.Posix)
         {
-            if (is64bit)
+            if (isX86_64)
             {
                 import dmd.identifier : Identifier;
                 import dmd.mtype : TypeIdentifier;
@@ -634,21 +832,54 @@ else
 } // !IN_LLVM
             break;
 
+        case EXP.identity, EXP.notIdentity:
+            supported = IN_LLVM;
+            break;
+
+        case EXP.lessThan, EXP.greaterThan, EXP.lessOrEqual, EXP.greaterOrEqual:
+        case EXP.equal:
+        case EXP.notEqual:
 version (IN_LLVM)
 {
-        case EXP.lessThan, EXP.greaterThan, EXP.lessOrEqual, EXP.greaterOrEqual:
-            supported = false;
-            break;
-        case EXP.equal, EXP.notEqual, EXP.identity, EXP.notIdentity:
-            supported = true;
-            break;
+            supported = tvec.isscalar();
 }
 else
 {
-        case EXP.lessThan, EXP.greaterThan, EXP.lessOrEqual, EXP.greaterOrEqual, EXP.equal, EXP.notEqual, EXP.identity, EXP.notIdentity:
-            supported = false;
-            break;
+            if (vecsize == 16)
+            {
+                // float[4] comparison needs SSE support (CMP{EQ,NEQ,LT,LE}PS)
+                if (elemty == TY.Tfloat32 && cpu >= CPU.sse)
+                    supported = true;
+                // double[2] comparison needs SSE2 support (CMP{EQ,NEQ,LT,LE}PD)
+                else if (elemty == TY.Tfloat64 && cpu >= CPU.sse2)
+                    supported = true;
+                else if (tvec.isintegral())
+                {
+                    if (elemty == TY.Tint64 || elemty == TY.Tuns64)
+                    {
+                        // (u)long[2] equality needs SSE4.1 support (PCMPEQQ)
+                       if ((op == EXP.equal || op == EXP.notEqual) && cpu >= CPU.sse4_1)
+                           supported = true;
+                       // (u)long[2] comparison needs SSE4.2 support (PCMPGTQ)
+                       else if (cpu >= CPU.sse4_2)
+                           supported = true;
+                    }
+                    // (u)byte[16]/short[8]/int[4] comparison needs SSE2 support (PCMP{EQ,GT}[BWD])
+                    else if (cpu >= CPU.sse2)
+                        supported = true;
+                }
+            }
+            else if (vecsize == 32)
+            {
+                // float[8]/double[4] comparison needs AVX support (VCMP{EQ,NEQ,LT,LE}P[SD])
+                if (tvec.isfloating() && cpu >= CPU.avx)
+                    supported = true;
+                // (u)byte[32]/short[16]/int[8]/long[4] comparison needs AVX2 support (VPCMP{EQ,GT}[BWDQ])
+                else if (tvec.isintegral() && cpu >= CPU.avx2)
+                    supported = true;
+            }
 } // !IN_LLVM
+            break;
 
         case EXP.leftShift, EXP.leftShiftAssign, EXP.rightShift, EXP.rightShiftAssign, EXP.unsignedRightShift, EXP.unsignedRightShiftAssign:
             supported = IN_LLVM && tvec.isintegral();
@@ -836,7 +1067,7 @@ else // !IN_LLVM
     {
         import dmd.argtypes_x86 : toArgTypes_x86;
         import dmd.argtypes_sysv_x64 : toArgTypes_sysv_x64;
-        if (is64bit)
+        if (isX86_64)
         {
             // no argTypes for Win64 yet
             return isPOSIX ? toArgTypes_sysv_x64(t) : null;
@@ -883,7 +1114,7 @@ else // !IN_LLVM
         const sz = tn.size();
         Type tns = tn;
 
-        if (os == Target.OS.Windows && is64bit)
+        if (os == Target.OS.Windows && isX86_64)
         {
             // https://msdn.microsoft.com/en-us/library/7572ztz4%28v=vs.100%29.aspx
             if (tns.ty == TY.Tcomplex32)
@@ -899,7 +1130,7 @@ else // !IN_LLVM
                     return true;
                 if (!sd.isPOD() || sz > 8)
                     return true;
-                if (sd.fields.dim == 0)
+                if (sd.fields.length == 0)
                     return true;
             }
             if (sz <= 16 && !(sz & (sz - 1)))
@@ -915,13 +1146,13 @@ else // !IN_LLVM
                     return true;
             }
         }
-        else if (is64bit && isPOSIX)
+        else if (isX86_64 && isPOSIX)
         {
             TypeTuple tt = toArgTypes_sysv_x64(tn);
             if (!tt)
                 return false; // void
             else
-                return !tt.arguments.dim;
+                return !tt.arguments.length;
         }
 
     Lagain:
@@ -931,7 +1162,7 @@ else // !IN_LLVM
             if (tns.ty != TY.Tstruct)
             {
     L2:
-                if (os == Target.OS.linux && tf.linkage != LINK.d && !is64bit)
+                if (os == Target.OS.linux && tf.linkage != LINK.d && !isX86_64)
                 {
                                                     // 32 bit C/C++ structs always on stack
                 }
@@ -958,12 +1189,12 @@ else // !IN_LLVM
         if (auto ts = tns.isTypeStruct())
         {
             auto sd = ts.sym;
-            if (os == Target.OS.linux && tf.linkage != LINK.d && !is64bit)
+            if (os == Target.OS.linux && tf.linkage != LINK.d && !isX86_64)
             {
                 //printf("  2 true\n");
                 return true;            // 32 bit C/C++ structs always on stack
             }
-            if (os == Target.OS.Windows && tf.linkage == LINK.cpp && !is64bit &&
+            if (os == Target.OS.Windows && tf.linkage == LINK.cpp && !isX86_64 &&
                      sd.isPOD() && sd.ctor)
             {
                 // win32 returns otherwise POD structs with ctors via memory
@@ -976,7 +1207,7 @@ else // !IN_LLVM
                     goto L2;
                 goto Lagain;
             }
-            else if (is64bit && sd.numArgTypes() == 0)
+            else if (isX86_64 && sd.numArgTypes() == 0)
                 return true;
             else if (sd.isPOD())
             {
@@ -990,7 +1221,7 @@ else // !IN_LLVM
                         return false;     // return small structs in regs
                                             // (not 3 byte structs!)
                     case 16:
-                        if (os & Target.OS.Posix && is64bit)
+                        if (os & Target.OS.Posix && isX86_64)
                            return false;
                         break;
 
@@ -1011,7 +1242,7 @@ else // !IN_LLVM
                 return true;
         }
         else if (os == Target.OS.Windows &&
-                 !is64bit &&
+                 !isX86_64 &&
                  tf.linkage == LINK.cpp &&
                  tf.isfloating())
         {
@@ -1039,7 +1270,7 @@ else // !IN_LLVM
     extern (C++) bool preferPassByRef(Type t)
     {
         const size = t.size();
-        if (is64bit)
+        if (isX86_64)
         {
             if (os == Target.OS.Windows)
             {
@@ -1166,7 +1397,7 @@ else // !IN_LLVM
      */
     extern (C++) bool libraryObjectMonitors(FuncDeclaration fd, Statement fbody)
     {
-        if (!is64bit && os == Target.OS.Windows && !fd.isStatic() && !fbody.usesEH() && !params.trace)
+        if (!isX86_64 && os == Target.OS.Windows && !fd.isStatic() && !fbody.usesEH() && !params.trace)
         {
             /* The back end uses the "jmonitor" hack for syncing;
              * no need to do the sync in the library.
@@ -1197,7 +1428,7 @@ else // !IN_LLVM
      */
     extern (D) bool isXmmSupported()
     {
-        return is64bit || os == Target.OS.OSX;
+        return isX86_64 || os == Target.OS.OSX;
     }
 
     /**
@@ -1209,6 +1440,15 @@ else // !IN_LLVM
     do
     {
         return (os & Target.OS.Posix) != 0;
+    }
+
+    /*********************
+     * Returns:
+     *  alignment of the stack
+     */
+    extern (D) uint stackAlign()
+    {
+        return isXmmSupported() ? 16 : (isX86_64 ? 8 : 4);
     }
 } // !IN_LLVM
 }
@@ -1271,14 +1511,14 @@ version (IN_LLVM) {} else
             longsize = 4;
         else
             assert(0);
-        if (target.is64bit)
+        if (target.isX86_64)
         {
             if (os & (Target.OS.linux | Target.OS.FreeBSD | Target.OS.OpenBSD | Target.OS.DragonFlyBSD | Target.OS.Solaris))
                 longsize = 8;
             else if (os == Target.OS.OSX)
                 longsize = 8;
         }
-        if (target.is64bit && os == Target.OS.Windows)
+        if (target.isX86_64 && os == Target.OS.Windows)
             long_doublesize = 8;
         else
             long_doublesize = target.realsize;
@@ -1373,7 +1613,7 @@ version (IN_LLVM) {} else
         else
             assert(0);
         // C++ and D ABI incompatible on all (?) x86 32-bit platforms
-        wrapDtorInExternD = !target.is64bit;
+        wrapDtorInExternD = !target.isX86_64;
     }
 
     /**
@@ -1536,7 +1776,7 @@ struct TargetObjC
     version (IN_LLVM) { /* initialized in Target::_init() */ } else
     extern (D) void initialize(ref const Param params, ref const Target target)
     {
-        if (target.os == Target.OS.OSX && target.is64bit)
+        if (target.os == Target.OS.OSX && target.isX86_64)
             supported = true;
     }
 }

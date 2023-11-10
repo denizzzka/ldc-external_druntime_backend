@@ -39,6 +39,7 @@
 #include "ir/irfunction.h"
 #include "ir/irmodule.h"
 #include "ir/irtypeaggr.h"
+#include "ir/irtypeclass.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ManagedStatic.h"
@@ -88,15 +89,6 @@ LLValue *DtoNew(const Loc &loc, Type *newtype) {
   LLValue *mem = gIR->CreateCallOrInvoke(fn, ti, ".gc_mem");
   // cast
   return DtoBitCast(mem, DtoPtrToType(newtype), ".gc_mem");
-}
-
-LLValue *DtoNewStruct(const Loc &loc, TypeStruct *newtype) {
-  llvm::Function *fn = getRuntimeFunction(
-      loc, gIR->module,
-      newtype->isZeroInit(newtype->sym->loc) ? "_d_newitemT" : "_d_newitemiT");
-  LLConstant *ti = DtoTypeInfoOf(loc, newtype);
-  LLValue *mem = gIR->CreateCallOrInvoke(fn, ti, ".gc_struct");
-  return DtoBitCast(mem, DtoPtrToType(newtype), ".gc_struct");
 }
 
 void DtoDeleteMemory(const Loc &loc, DValue *ptr) {
@@ -190,7 +182,7 @@ llvm::AllocaInst *DtoArrayAlloca(Type *type, unsigned arraysize,
       lltype, gIR->module.getDataLayout().getAllocaAddrSpace(),
       DtoConstUint(arraysize), name, gIR->topallocapoint());
   if (auto alignment = DtoAlignment(type)) {
-    ai->setAlignment(LLAlign(alignment));
+    ai->setAlignment(llvm::Align(alignment));
   }
   return ai;
 }
@@ -201,20 +193,9 @@ llvm::AllocaInst *DtoRawAlloca(LLType *lltype, size_t alignment,
       lltype, gIR->module.getDataLayout().getAllocaAddrSpace(), name,
       gIR->topallocapoint());
   if (alignment) {
-    ai->setAlignment(LLAlign(alignment));
+    ai->setAlignment(llvm::Align(alignment));
   }
   return ai;
-}
-
-LLValue *DtoGcMalloc(const Loc &loc, LLType *lltype, const char *name) {
-  // get runtime function
-  llvm::Function *fn = getRuntimeFunction(loc, gIR->module, "_d_allocmemory");
-  // parameters
-  LLValue *size = DtoConstSize_t(getTypeAllocSize(lltype));
-  // call runtime allocator
-  LLValue *mem = gIR->CreateCallOrInvoke(fn, size, name);
-  // cast
-  return DtoBitCast(mem, getPtrToType(lltype), name);
 }
 
 LLValue *DtoAllocaDump(DValue *val, const char *name) {
@@ -289,7 +270,7 @@ void DtoAssert(Module *M, const Loc &loc, DValue *msg) {
   args.push_back(DtoModuleFileName(M, loc));
 
   // line param
-  args.push_back(DtoConstUint(loc.linnum));
+  args.push_back(DtoConstUint(loc.linnum()));
 
   // call
   gIR->CreateCallOrInvoke(fn, args);
@@ -301,8 +282,8 @@ void DtoAssert(Module *M, const Loc &loc, DValue *msg) {
 void DtoCAssert(Module *M, const Loc &loc, LLValue *msg) {
   const auto &triple = *global.params.targetTriple;
   const auto file =
-      DtoConstCString(loc.filename ? loc.filename : M->srcfile.toChars());
-  const auto line = DtoConstUint(loc.linnum);
+      DtoConstCString(loc.filename() ? loc.filename() : M->srcfile.toChars());
+  const auto line = DtoConstUint(loc.linnum());
   const auto fn = getCAssertFunction(loc, gIR->module);
 
   llvm::SmallVector<LLValue *, 4> args;
@@ -326,6 +307,14 @@ void DtoCAssert(Module *M, const Loc &loc, LLValue *msg) {
   } else if (triple.getEnvironment() == llvm::Triple::Android) {
     args.push_back(file);
     args.push_back(line);
+    args.push_back(msg);
+  } else if (global.params.isNewlibEnvironment) {
+    const auto irFunc = gIR->func();
+    const auto funcName =
+        irFunc && irFunc->decl ? irFunc->decl->toPrettyChars() : "";
+    args.push_back(file);
+    args.push_back(line);
+    args.push_back(DtoConstCString(funcName));
     args.push_back(msg);
   } else {
     args.push_back(msg);
@@ -358,7 +347,7 @@ void DtoThrow(const Loc &loc, DValue *e) {
  ******************************************************************************/
 
 LLConstant *DtoModuleFileName(Module *M, const Loc &loc) {
-  return DtoConstString(loc.filename ? loc.filename : M->srcfile.toChars());
+  return DtoConstString(loc.filename() ? loc.filename() : M->srcfile.toChars());
 }
 
 /******************************************************************************
@@ -846,9 +835,9 @@ void DtoResolveVariable(VarDeclaration *vd) {
   // just forward aliases
   // TODO: Is this required here or is the check in VarDeclaration::codegen
   // sufficient?
-  if (vd->aliassym) {
-    Logger::println("alias sym");
-    DtoResolveDsymbol(vd->aliassym);
+  if (vd->aliasTuple) {
+    Logger::println("aliasTuple");
+    DtoResolveDsymbol(vd->aliasTuple);
     return;
   }
 
@@ -882,7 +871,7 @@ void DtoResolveVariable(VarDeclaration *vd) {
 void DtoVarDeclaration(VarDeclaration *vd) {
   assert(!vd->isDataseg() &&
          "Statics/globals are handled in DtoDeclarationExp.");
-  assert(!vd->aliassym && "Aliases are handled in DtoDeclarationExp.");
+  assert(!vd->aliasTuple && "Aliases are handled in DtoDeclarationExp.");
 
   IF_LOG Logger::println("DtoVarDeclaration(vdtype = %s)", vd->type->toChars());
   LOG_SCOPE
@@ -921,19 +910,29 @@ void DtoVarDeclaration(VarDeclaration *vd) {
     Type *type = isSpecialRefVar(vd) ? vd->type->pointerTo() : vd->type;
 
     llvm::Value *allocainst;
+    bool isRealAlloca = false;
     LLType *lltype = DtoType(type); // void for noreturn
     if (lltype->isVoidTy() || gDataLayout->getTypeSizeInBits(lltype) == 0) {
       allocainst = llvm::ConstantPointerNull::get(getPtrToType(lltype));
     } else if (type != vd->type) {
       allocainst = DtoAlloca(type, vd->toChars());
+      isRealAlloca = true;
     } else {
       allocainst = DtoAlloca(vd, vd->toChars());
+      isRealAlloca = true;
     }
 
     irLocal->value = allocainst;
 
     if (!lltype->isVoidTy())
       gIR->DBuilder.EmitLocalVariable(allocainst, vd);
+
+    // Lifetime annotation is only valid on alloca.
+    if (isRealAlloca) {
+      // The lifetime of a stack variable starts from the point it is declared
+      gIR->funcGen().localVariableLifetimeAnnotator.addLocalVariable(
+          allocainst, DtoConstUlong(type->size()));
+    }
   }
 
   IF_LOG Logger::cout() << "llvm value for decl: " << *getIrLocal(vd)->value
@@ -955,11 +954,11 @@ DValue *DtoDeclarationExp(Dsymbol *declaration) {
   if (VarDeclaration *vd = declaration->isVarDeclaration()) {
     Logger::println("VarDeclaration");
 
-    // if aliassym is set, this VarDecl is redone as an alias to another symbol
+    // if aliasTuple is set, this VarDecl is redone as an alias to another symbol
     // this seems to be done to rewrite Tuple!(...) v;
     // as a TupleDecl that contains a bunch of individual VarDecls
-    if (vd->aliassym) {
-      return DtoDeclarationExp(vd->aliassym);
+    if (vd->aliasTuple) {
+      return DtoDeclarationExp(vd->aliasTuple);
     }
 
     if (vd->storage_class & STCmanifest) {
@@ -1023,7 +1022,7 @@ LLValue *DtoRawVarDeclaration(VarDeclaration *var, LLValue *addr) {
   assert(!var->isDataseg());
 
   // we don't handle aliases either
-  assert(!var->aliassym);
+  assert(!var->aliasTuple);
 
   IrLocal *irLocal = isIrLocalCreated(var) ? getIrLocal(var) : nullptr;
 
@@ -1180,7 +1179,7 @@ LLConstant *DtoConstExpInit(const Loc &loc, Type *targetType, Expression *exp) {
       val = llvm::ConstantArray::get(at, elements);
     }
 
-    (void)numTotalVals;
+    (void)numTotalVals; (void) product; // Silence unused variable warning when assert is disabled.
     assert(product == numTotalVals);
     return val;
   }
@@ -1194,10 +1193,8 @@ LLConstant *DtoConstExpInit(const Loc &loc, Type *targetType, Expression *exp) {
         static_cast<TypeSArray *>(tv->basetype)->dim->toInteger();
 #if LDC_LLVM_VER >= 1200
     const auto elementCount = llvm::ElementCount::getFixed(elemCount);
-#elif LDC_LLVM_VER >= 1100
-    const auto elementCount = llvm::ElementCount(elemCount, false);
 #else
-    const auto elementCount = elemCount;
+    const auto elementCount = llvm::ElementCount(elemCount, false);
 #endif
     return llvm::ConstantVector::getSplat(elementCount, val);
   }
@@ -1273,11 +1270,7 @@ static char *DtoOverloadedIntrinsicName(TemplateInstance *ti,
   if (dtype->isPPC_FP128Ty()) { // special case
     replacement = "ppcf128";
   } else if (dtype->isVectorTy()) {
-#if LDC_LLVM_VER >= 1100
     auto vectorType = llvm::cast<llvm::FixedVectorType>(dtype);
-#else
-    auto vectorType = llvm::cast<llvm::VectorType>(dtype);
-#endif
     llvm::raw_string_ostream stream(replacement);
     stream << 'v' << vectorType->getNumElements() << prefix
            << gDataLayout->getTypeSizeInBits(vectorType->getElementType());
@@ -1616,14 +1609,6 @@ DValue *DtoSymbolAddress(const Loc &loc, Type *type, Declaration *decl) {
 }
 
 llvm::Constant *DtoConstSymbolAddress(const Loc &loc, Declaration *decl) {
-  // Make sure 'this' isn't needed.
-  // TODO: This check really does not belong here, should be moved to
-  // semantic analysis in the frontend.
-  if (decl->needThis()) {
-    error(loc, "need `this` to access `%s`", decl->toChars());
-    fatal();
-  }
-
   // global variable
   if (VarDeclaration *vd = decl->isVarDeclaration()) {
     if (!vd->isDataseg()) {
@@ -1895,16 +1880,12 @@ DLValue *DtoIndexAggregate(LLValue *src, AggregateDeclaration *ad,
       // Cast the pointer we got to the canonical struct type the indices are
       // based on.
       LLType *st = nullptr;
-      LLType *pst = nullptr;
-      if (ad->isClassDeclaration()) {
-        st = getIrAggr(ad)->getLLStructType();
-        pst = DtoType(ad->type);
+      if (auto irtc = irTypeAggr->isClass()) {
+        st = irtc->getMemoryLLType();
+      } else {
+        st = irTypeAggr->getLLType();
       }
-      else {
-        st = DtoType(ad->type);
-        pst = getPtrToType(st);
-      }
-      ptr = DtoBitCast(ptr, pst);
+      ptr = DtoBitCast(ptr, st->getPointerTo());
       ptr = DtoGEP(st, ptr, 0, off);
       ty = isaStruct(st)->getElementType(off);
     }

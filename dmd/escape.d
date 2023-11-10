@@ -1,7 +1,7 @@
 /**
  * Most of the logic to implement scoped pointers and scoped references is here.
  *
- * Copyright:   Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright:   Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * Authors:     $(LINK2 https://www.digitalmars.com, Walter Bright)
  * License:     $(LINK2 https://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Source:      $(LINK2 https://github.com/dlang/dmd/blob/master/src/dmd/escape.d, _escape.d)
@@ -29,6 +29,7 @@ import dmd.globals;
 import dmd.id;
 import dmd.identifier;
 import dmd.init;
+import dmd.location;
 import dmd.mtype;
 import dmd.printast;
 import dmd.root.rootobject;
@@ -92,22 +93,7 @@ bool checkMutableArguments(Scope* sc, FuncDeclaration fd, TypeFunction tf,
         bool isMutable;         // true if reference to mutable
     }
 
-    /* Store escapeBy as static data escapeByStorage so we can keep reusing the same
-     * arrays rather than reallocating them.
-     */
-    __gshared EscapeBy[] escapeByStorage;
-    auto escapeBy = escapeByStorage;
-    if (escapeBy.length < len)
-    {
-        auto newPtr = cast(EscapeBy*)mem.xrealloc(escapeBy.ptr, len * EscapeBy.sizeof);
-        // Clear the new section
-        memset(newPtr + escapeBy.length, 0, (len - escapeBy.length) * EscapeBy.sizeof);
-        escapeBy = newPtr[0 .. len];
-        escapeByStorage = escapeBy;
-    }
-    else
-        escapeBy = escapeBy[0 .. len];
-
+    auto escapeBy = new EscapeBy[len];
     const paramLength = tf.parameterList.length;
 
     // Fill in escapeBy[] with arguments[], ethis, and outerVars[]
@@ -180,7 +166,7 @@ bool checkMutableArguments(Scope* sc, FuncDeclaration fd, TypeFunction tf,
         if (!(eb.isMutable || eb2.isMutable))
             return;
 
-        if (!(global.params.useDIP1000 == FeatureState.enabled && sc.setUnsafe()))
+        if (!tf.islive && !(global.params.useDIP1000 == FeatureState.enabled && sc.func && sc.func.setUnsafe()))
             return;
 
         if (!gag)
@@ -225,13 +211,6 @@ bool checkMutableArguments(Scope* sc, FuncDeclaration fd, TypeFunction tf,
     {
         escape(i, eb, true);
         escape(i, eb, false);
-    }
-
-    /* Reset the arrays in escapeBy[] so we can reuse them next time through
-     */
-    foreach (ref eb; escapeBy)
-    {
-        eb.er.reset();
     }
 
     return errors;
@@ -328,7 +307,7 @@ void printScopeFailure(E)(E printFunc, VarDeclaration v, int recursionLimit)
  * Params:
  *      sc = used to determine current function and module
  *      fdc = function being called, `null` if called indirectly
- *      par = function parameter (`this` if null)
+ *      parId = name of function parameter for error messages
  *      vPar = `VarDeclaration` corresponding to `par`
  *      parStc = storage classes of function parameter (may have added `scope` from `pure`)
  *      arg = initializer for param
@@ -337,12 +316,12 @@ void printScopeFailure(E)(E printFunc, VarDeclaration v, int recursionLimit)
  * Returns:
  *      `true` if pointers to the stack can escape via assignment
  */
-bool checkParamArgumentEscape(Scope* sc, FuncDeclaration fdc, Parameter par, VarDeclaration vPar, STC parStc, Expression arg, bool assertmsg, bool gag)
+bool checkParamArgumentEscape(Scope* sc, FuncDeclaration fdc, Identifier parId, VarDeclaration vPar, STC parStc, Expression arg, bool assertmsg, bool gag)
 {
     enum log = false;
     if (log) printf("checkParamArgumentEscape(arg: %s par: %s)\n",
         arg ? arg.toChars() : "null",
-        par ? par.toChars() : "this");
+        parId ? parId.toChars() : "null");
     //printf("type = %s, %d\n", arg.type.toChars(), arg.type.hasPointers());
 
     if (!arg.type.hasPointers())
@@ -361,7 +340,7 @@ bool checkParamArgumentEscape(Scope* sc, FuncDeclaration fdc, Parameter par, Var
         er.byexp.setDim(0);
     }
 
-    if (!er.byref.dim && !er.byvalue.dim && !er.byfunc.dim && !er.byexp.dim)
+    if (!er.byref.length && !er.byvalue.length && !er.byfunc.length && !er.byexp.length)
         return false;
 
     bool result = false;
@@ -374,24 +353,24 @@ bool checkParamArgumentEscape(Scope* sc, FuncDeclaration fdc, Parameter par, Var
         {
             result |= sc.setUnsafeDIP1000(gag, arg.loc,
                 desc ~ " `%s` assigned to non-scope parameter calling `assert()`", v);
+            return;
         }
-        else if (par)
+
+        bool isThis = fdc && fdc.needThis() && fdc.vthis == vPar; // implicit `this` parameter to member function
+
+        const(char)* msg =
+            (isThis)        ? (desc ~ " `%s` calling non-scope member function `%s.%s()`") :
+            (fdc &&  parId) ? (desc ~ " `%s` assigned to non-scope parameter `%s` calling `%s`") :
+            (fdc && !parId) ? (desc ~ " `%s` assigned to non-scope anonymous parameter calling `%s`") :
+            (!fdc && parId) ? (desc ~ " `%s` assigned to non-scope parameter `%s`") :
+            (desc ~ " `%s` assigned to non-scope anonymous parameter");
+
+        if (isThis ?
+            sc.setUnsafeDIP1000(gag, arg.loc, msg, arg, fdc.toParent2(), fdc) :
+            sc.setUnsafeDIP1000(gag, arg.loc, msg, v, parId ? parId : fdc, fdc))
         {
-            if (sc.setUnsafeDIP1000(gag, arg.loc,
-                desc ~ " `%s` assigned to non-scope parameter `%s` calling `%s`", v, par, fdc))
-            {
-                result = true;
-                printScopeFailure(previewSupplementalFunc(sc.isDeprecated(), global.params.useDIP1000), vPar, 10);
-            }
-        }
-        else
-        {
-            if (sc.setUnsafeDIP1000(gag, arg.loc,
-                desc ~ " `%s` assigned to non-scope parameter `this` calling `%s`", v, fdc))
-            {
-                result = true;
-                printScopeFailure(previewSupplementalFunc(sc.isDeprecated(), global.params.useDIP1000), fdc.vthis, 10);
-            }
+            result = true;
+            printScopeFailure(previewSupplementalFunc(sc.isDeprecated(), global.params.useDIP1000), vPar, 10);
         }
     }
 
@@ -465,16 +444,11 @@ bool checkParamArgumentEscape(Scope* sc, FuncDeclaration fdc, Parameter par, Var
 
     foreach (Expression ee; er.byexp)
     {
-        if (!par)
-        {
-            result |= sc.setUnsafeDIP1000(gag, ee.loc,
-                "reference to stack allocated value returned by `%s` assigned to non-scope parameter `this`", ee);
-        }
-        else
-        {
-            result |= sc.setUnsafeDIP1000(gag, ee.loc,
-                "reference to stack allocated value returned by `%s` assigned to non-scope parameter `%s`", ee, par);
-        }
+        const(char)* msg = parId ?
+            "reference to stack allocated value returned by `%s` assigned to non-scope parameter `%s`" :
+            "reference to stack allocated value returned by `%s` assigned to non-scope anonymous parameter";
+
+        result |= sc.setUnsafeDIP1000(gag, ee.loc, msg, ee, parId);
     }
 
     return result;
@@ -513,7 +487,7 @@ bool checkParamArgumentReturn(Scope* sc, Expression firstArg, Expression arg, Pa
     const byRef = param.isReference() && !(param.storageClass & STC.scope_)
         && !(param.storageClass & STC.returnScope); // fixme: it's possible to infer returnScope without scope with vaIsFirstRef
 
-    scope e = new AssignExp(arg.loc, firstArg, arg);
+    auto e = new AssignExp(arg.loc, firstArg, arg);
     return checkAssignEscape(sc, e, gag, byRef);
 }
 
@@ -537,7 +511,7 @@ bool checkConstructorEscape(Scope* sc, CallExp ce, bool gag)
     if (!tthis.hasPointers())
         return false;
 
-    if (!ce.arguments && ce.arguments.dim)
+    if (!ce.arguments && ce.arguments.length)
         return false;
 
     DotVarExp dve = ce.e1.isDotVarExp();
@@ -545,7 +519,7 @@ bool checkConstructorEscape(Scope* sc, CallExp ce, bool gag)
     TypeFunction tf = ctor.type.isTypeFunction();
 
     const nparams = tf.parameterList.length;
-    const n = ce.arguments.dim;
+    const n = ce.arguments.length;
 
     // j=1 if _arguments[] is first argument
     const j = tf.isDstyleVariadic();
@@ -566,6 +540,46 @@ bool checkConstructorEscape(Scope* sc, CallExp ce, bool gag)
     }
 
     return false;
+}
+
+/// How a `return` parameter escapes its pointer value
+enum ReturnParamDest
+{
+    returnVal, /// through return statement: `return x`
+    this_,     /// assigned to a struct instance: `this.x = x`
+    firstArg,  /// assigned to first argument: `firstArg = x`
+}
+
+/****************************************
+ * Find out if instead of returning a `return` parameter via a return statement,
+ * it is returned via assignment to either `this` or the first parameter.
+ *
+ * This works the same as returning the value via a return statement.
+ * Although the first argument must be `ref`, it is not regarded as returning by `ref`.
+ *
+ * See_Also: https://dlang.org.spec/function.html#return-ref-parameters
+ *
+ * Params:
+ *   tf = function type
+ *   tthis = type of `this` parameter, or `null` if none
+ * Returns: What a `return` parameter should transfer the lifetime of the argument to
+ */
+ReturnParamDest returnParamDest(TypeFunction tf, Type tthis)
+{
+    assert(tf);
+    if (tf.isctor)
+        return ReturnParamDest.this_;
+
+    if (!tf.nextOf() || (tf.nextOf().ty != Tvoid))
+        return ReturnParamDest.returnVal;
+
+    if (tthis && tthis.toBasetype().ty == Tstruct) // class `this` is passed by value
+        return ReturnParamDest.this_;
+
+    if (tf.parameterList.length > 0 && tf.parameterList[0].isReference)
+        return ReturnParamDest.firstArg;
+
+    return ReturnParamDest.returnVal;
 }
 
 /****************************************
@@ -618,6 +632,7 @@ bool checkAssignEscape(Scope* sc, Expression e, bool gag, bool byRef)
     if (e1.isStructLiteralExp())
         return false;
 
+    VarDeclaration va = expToVariable(e1);
     EscapeByResults er;
 
     if (byRef)
@@ -625,10 +640,9 @@ bool checkAssignEscape(Scope* sc, Expression e, bool gag, bool byRef)
     else
         escapeByValue(e2, &er);
 
-    if (!er.byref.dim && !er.byvalue.dim && !er.byfunc.dim && !er.byexp.dim)
+    if (!er.byref.length && !er.byvalue.length && !er.byfunc.length && !er.byexp.length)
         return false;
 
-    VarDeclaration va = expToVariable(e1);
 
     if (va && e.op == EXP.concatenateElemAssign)
     {
@@ -663,30 +677,23 @@ bool checkAssignEscape(Scope* sc, Expression e, bool gag, bool byRef)
     const bool vaIsRef = va && va.isParameter() && va.isReference();
     if (log && vaIsRef) printf("va is ref `%s`\n", va.toChars());
 
-    /* Determine if va is the first parameter, through which other 'return' parameters
-     * can be assigned.
-     * This works the same as returning the value via a return statement.
-     * Although va is marked as `ref`, it is not regarded as returning by `ref`.
-     * https://dlang.org.spec/function.html#return-ref-parameters
-     */
-    bool isFirstRef()
+    // Determine if va is the first parameter, through which other 'return' parameters
+    // can be assigned.
+    bool vaIsFirstRef = false;
+    if (fd && fd.type)
     {
-        if (!vaIsRef)
-            return false;
-        Dsymbol p = va.toParent2();
-        if (p == fd && fd.type && fd.type.isTypeFunction())
+        final switch (returnParamDest(fd.type.isTypeFunction(), fd.vthis ? fd.vthis.type : null))
         {
-            TypeFunction tf = fd.type.isTypeFunction();
-            if (!tf.nextOf() || (tf.nextOf().ty != Tvoid && !fd.isCtorDeclaration()))
-                return false;
-            if (va == fd.vthis) // `this` of a non-static member function is considered to be the first parameter
-                return true;
-            if (!fd.vthis && fd.parameters && fd.parameters.length && (*fd.parameters)[0] == va) // va is first parameter
-                return true;
+            case ReturnParamDest.this_:
+                vaIsFirstRef = va == fd.vthis;
+                break;
+            case ReturnParamDest.firstArg:
+                vaIsFirstRef = (*fd.parameters)[0] == va;
+                break;
+            case ReturnParamDest.returnVal:
+                break;
         }
-        return false;
     }
-    const bool vaIsFirstRef = isFirstRef();
     if (log && vaIsFirstRef) printf("va is first ref `%s`\n", va.toChars());
 
     bool result = false;
@@ -959,7 +966,7 @@ bool checkThrowEscape(Scope* sc, Expression e, bool gag)
 
     escapeByValue(e, &er);
 
-    if (!er.byref.dim && !er.byvalue.dim && !er.byexp.dim)
+    if (!er.byref.length && !er.byvalue.length && !er.byexp.length)
         return false;
 
     bool result = false;
@@ -1007,7 +1014,7 @@ bool checkNewEscape(Scope* sc, Expression e, bool gag)
 
     escapeByValue(e, &er);
 
-    if (!er.byref.dim && !er.byvalue.dim && !er.byexp.dim)
+    if (!er.byref.length && !er.byvalue.length && !er.byexp.length)
         return false;
 
     bool result = false;
@@ -1187,7 +1194,7 @@ private bool checkReturnEscapeImpl(Scope* sc, Expression e, bool refs, bool gag)
     else
         escapeByValue(e, &er);
 
-    if (!er.byref.dim && !er.byvalue.dim && !er.byexp.dim)
+    if (!er.byref.length && !er.byvalue.length && !er.byexp.length)
         return false;
 
     bool result = false;
@@ -1723,29 +1730,17 @@ void escapeByValue(Expression e, EscapeByResults* er, bool live = false, bool re
         /* Check each argument that is
          * passed as 'return scope'.
          */
-        Type t1 = e.e1.type.toBasetype();
-        TypeFunction tf;
-        TypeDelegate dg;
-        if (t1.ty == Tdelegate)
-        {
-            dg = t1.isTypeDelegate();
-            tf = dg.next.isTypeFunction();
-        }
-        else if (t1.ty == Tfunction)
-            tf = t1.isTypeFunction();
-        else
+        TypeFunction tf = e.calledFunctionType();
+        if (!tf || !e.type.hasPointers())
             return;
 
-        if (!e.type.hasPointers())
-            return;
-
-        if (e.arguments && e.arguments.dim)
+        if (e.arguments && e.arguments.length)
         {
             /* j=1 if _arguments[] is first argument,
              * skip it because it is not passed by ref
              */
             int j = tf.isDstyleVariadic();
-            for (size_t i = j; i < e.arguments.dim; ++i)
+            for (size_t i = j; i < e.arguments.length; ++i)
             {
                 Expression arg = (*e.arguments)[i];
                 size_t nparams = tf.parameterList.length;
@@ -1755,7 +1750,25 @@ void escapeByValue(Expression e, EscapeByResults* er, bool live = false, bool re
                     const stc = tf.parameterStorageClass(null, p);
                     ScopeRef psr = buildScopeRef(stc);
                     if (psr == ScopeRef.ReturnScope || psr == ScopeRef.Ref_ReturnScope)
-                        escapeByValue(arg, er, live, retRefTransition);
+                    {
+                        if (tf.isref)
+                        {
+                            /* ignore `ref` on struct constructor return because
+                             *   struct S { this(return scope int* q) { this.p = q; } int* p; }
+                             * is different from:
+                             *   ref char* front(return scope char** q) { return *q; }
+                             * https://github.com/dlang/dmd/pull/14869
+                             */
+                            if (auto dve = e.e1.isDotVarExp())
+                                if (auto fd = dve.var.isFuncDeclaration())
+                                    if (fd.isCtorDeclaration() && tf.next.toBasetype().isTypeStruct())
+                                    {
+                                        escapeByValue(arg, er, live, retRefTransition);
+                                    }
+                        }
+                        else
+                            escapeByValue(arg, er, live, retRefTransition);
+                    }
                     else if (psr == ScopeRef.ReturnRef || psr == ScopeRef.ReturnRef_Scope)
                     {
                         if (tf.isref)
@@ -1774,71 +1787,59 @@ void escapeByValue(Expression e, EscapeByResults* er, bool live = false, bool re
             }
         }
         // If 'this' is returned, check it too
+        Type t1 = e.e1.type.toBasetype();
         if (e.e1.op == EXP.dotVariable && t1.ty == Tfunction)
         {
             DotVarExp dve = e.e1.isDotVarExp();
             FuncDeclaration fd = dve.var.isFuncDeclaration();
-            if (1)
+            if (fd && fd.isThis())
             {
-                if (fd && fd.isThis())
+                /* Calling a non-static member function dve.var, which is returning `this`, and with dve.e1 representing `this`
+                 */
+
+                /*****************************
+                 * Concoct storage class for member function's implicit `this` parameter.
+                 * Params:
+                 *      fd = member function
+                 * Returns:
+                 *      storage class for fd's `this`
+                 */
+                StorageClass getThisStorageClass(FuncDeclaration fd)
                 {
-                    /* Calling a non-static member function dve.var, which is returning `this`, and with dve.e1 representing `this`
-                     */
-
-                    /*****************************
-                     * Concoct storage class for member function's implicit `this` parameter.
-                     * Params:
-                     *      fd = member function
-                     * Returns:
-                     *      storage class for fd's `this`
-                     */
-                    StorageClass getThisStorageClass(FuncDeclaration fd)
-                    {
-                        StorageClass stc;
-                        auto tf = fd.type.toBasetype().isTypeFunction();
-                        if (tf.isreturn)
-                            stc |= STC.return_;
-                        if (tf.isreturnscope)
-                            stc |= STC.returnScope | STC.scope_;
-                        auto ad = fd.isThis();
-                        if (ad.isClassDeclaration() || tf.isScopeQual)
-                            stc |= STC.scope_;
-                        if (ad.isStructDeclaration())
-                            stc |= STC.ref_;        // `this` for a struct member function is passed by `ref`
-                        return stc;
-                    }
-
-                    const psr = buildScopeRef(getThisStorageClass(fd));
-                    if (psr == ScopeRef.ReturnScope || psr == ScopeRef.Ref_ReturnScope)
-                        escapeByValue(dve.e1, er, live, retRefTransition);
-                    else if (psr == ScopeRef.ReturnRef || psr == ScopeRef.ReturnRef_Scope)
-                    {
-                        if (tf.isref)
-                        {
-                            /* Treat calling:
-                             *   struct S { ref S foo() return; }
-                             * as:
-                             *   this;
-                             */
-                            escapeByValue(dve.e1, er, live, retRefTransition);
-                        }
-                        else
-                            escapeByRef(dve.e1, er, live, psr == ScopeRef.ReturnRef_Scope);
-                    }
+                    StorageClass stc;
+                    auto tf = fd.type.toBasetype().isTypeFunction();
+                    if (tf.isreturn)
+                        stc |= STC.return_;
+                    if (tf.isreturnscope)
+                        stc |= STC.returnScope | STC.scope_;
+                    auto ad = fd.isThis();
+                    if (ad.isClassDeclaration() || tf.isScopeQual)
+                        stc |= STC.scope_;
+                    if (ad.isStructDeclaration())
+                        stc |= STC.ref_;        // `this` for a struct member function is passed by `ref`
+                    return stc;
                 }
-            }
-            else
-            {
-                // Calling member function before dip1000
-                StorageClass stc = dve.var.storage_class & (STC.return_ | STC.scope_ | STC.ref_);
-                if (tf.isreturn)
-                    stc |= STC.return_;
 
-                const psr = buildScopeRef(stc);
+                const psr = buildScopeRef(getThisStorageClass(fd));
                 if (psr == ScopeRef.ReturnScope || psr == ScopeRef.Ref_ReturnScope)
-                    escapeByValue(dve.e1, er, live, retRefTransition);
+                {
+                    if (!tf.isref || tf.isctor)
+                        escapeByValue(dve.e1, er, live, retRefTransition);
+                }
                 else if (psr == ScopeRef.ReturnRef || psr == ScopeRef.ReturnRef_Scope)
-                    escapeByRef(dve.e1, er, live, retRefTransition);
+                {
+                    if (tf.isref)
+                    {
+                        /* Treat calling:
+                         *   struct S { ref S foo() return; }
+                         * as:
+                         *   this;
+                         */
+                        escapeByValue(dve.e1, er, live, retRefTransition);
+                    }
+                    else
+                        escapeByRef(dve.e1, er, live, psr == ScopeRef.ReturnRef_Scope);
+                }
             }
 
             // If it's also a nested function that is 'return scope'
@@ -1852,7 +1853,7 @@ void escapeByValue(Expression e, EscapeByResults* er, bool live = false, bool re
         /* If returning the result of a delegate call, the .ptr
          * field of the delegate must be checked.
          */
-        if (dg)
+        if (t1.isTypeDelegate())
         {
             if (tf.isreturn)
                 escapeByValue(e.e1, er, live, retRefTransition);
@@ -2038,23 +2039,18 @@ void escapeByRef(Expression e, EscapeByResults* er, bool live = false, bool retR
         /* If the function returns by ref, check each argument that is
          * passed as 'return ref'.
          */
-        Type t1 = e.e1.type.toBasetype();
-        TypeFunction tf;
-        if (t1.ty == Tdelegate)
-            tf = t1.isTypeDelegate().next.isTypeFunction();
-        else if (t1.ty == Tfunction)
-            tf = t1.isTypeFunction();
-        else
+        TypeFunction tf = e.calledFunctionType();
+        if (!tf)
             return;
         if (tf.isref)
         {
-            if (e.arguments && e.arguments.dim)
+            if (e.arguments && e.arguments.length)
             {
                 /* j=1 if _arguments[] is first argument,
                  * skip it because it is not passed by ref
                  */
                 int j = tf.isDstyleVariadic();
-                for (size_t i = j; i < e.arguments.dim; ++i)
+                for (size_t i = j; i < e.arguments.length; ++i)
                 {
                     Expression arg = (*e.arguments)[i];
                     size_t nparams = tf.parameterList.length;
@@ -2079,6 +2075,7 @@ void escapeByRef(Expression e, EscapeByResults* er, bool live = false, bool retR
                 }
             }
             // If 'this' is returned by ref, check it too
+            Type t1 = e.e1.type.toBasetype();
             if (e.e1.op == EXP.dotVariable && t1.ty == Tfunction)
             {
                 DotVarExp dve = e.e1.isDotVarExp();
@@ -2323,7 +2320,7 @@ void finishScopeParamInference(FuncDeclaration funcdecl, ref TypeFunction f)
     {
         // Create and fill array[] with maybe candidates from the `this` and the parameters
         VarDeclaration[10] tmp = void;
-        size_t dim = (funcdecl.vthis !is null) + (funcdecl.parameters ? funcdecl.parameters.dim : 0);
+        size_t dim = (funcdecl.vthis !is null) + (funcdecl.parameters ? funcdecl.parameters.length : 0);
 
         import dmd.common.string : SmallBuffer;
         auto sb = SmallBuffer!VarDeclaration(dim, tmp[]);
@@ -2345,11 +2342,11 @@ void finishScopeParamInference(FuncDeclaration funcdecl, ref TypeFunction f)
     // Infer STC.scope_
     if (funcdecl.parameters && !funcdecl.errors)
     {
-        assert(f.parameterList.length == funcdecl.parameters.dim);
+        assert(f.parameterList.length == funcdecl.parameters.length);
         foreach (u, p; f.parameterList)
         {
             auto v = (*funcdecl.parameters)[u];
-            if (!v.isScope() && inferScope(v))
+            if (!v.isScope() && v.type.hasPointers() && inferScope(v))
             {
                 //printf("Inferring scope for %s\n", v.toChars());
                 p.storageClass |= STC.scope_ | STC.scopeinferred;
@@ -2468,6 +2465,9 @@ bool isReferenceToMutable(Type t)
                     return true;
             }
             break;
+
+        case Tnull:
+            return false;
 
         default:
             assert(0);

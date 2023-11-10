@@ -70,7 +70,7 @@ std::string hashSymbolName(llvm::StringRef name, Dsymbol *symb) {
   }
 
   // source line number
-  auto lineNo = ldc::to_string(symb->loc.linnum);
+  auto lineNo = ldc::to_string(symb->loc.linnum());
   ret += ldc::to_string(lineNo.size()+1);
   ret += 'L';
   ret += lineNo;
@@ -98,6 +98,9 @@ std::string hashSymbolName(llvm::StringRef name, Dsymbol *symb) {
 
 std::string getIRMangledName(FuncDeclaration *fdecl, LINK link) {
   std::string mangledName = mangleExact(fdecl);
+  if (fdecl->adFlags & 4) { // nounderscore
+    mangledName.insert(0, "\1");
+  }
 
   // Hash the name if necessary
   if (((link == LINK::d) || (link == LINK::default_)) &&

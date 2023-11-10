@@ -636,7 +636,11 @@ string getDisabledReason(string[] disabledPlatforms, const ref EnvData envData)
         // additionally support `DISABLED: LDC_<OS>[<model>]`
         const j = disabledPlatforms.countUntil!(p => p.startsWith("LDC_") && target.canFind(p[4 .. $]));
         if (j != -1)
-            return "on " ~ disabledPlatforms[j];
+            return "for LDC on " ~ disabledPlatforms[j];
+
+        // we don't use the 32mscoff model, but 32 instead
+        if (target == "win32" && disabledPlatforms.canFind("win32mscoff"))
+            return "on win32mscoff";
     }
 
     return null;
@@ -1045,7 +1049,7 @@ string unifyDirSep(string str, string sep)
     }
     auto mStr = str.dup;
     auto remaining = mStr;
-    alias needles = AliasSeq!(".d", ".di", ".mixin", ".c", ".i");
+    alias needles = AliasSeq!(".d", ".di", ".mixin", ".c", ".i", ".h");
     enum needlesArray = [needles];
     // simple multi-delimiter word identification
     while (!remaining.empty)
@@ -1815,7 +1819,7 @@ int tryMain(string[] args)
             {
                 foreach (filename; testArgs.sources ~ (autoCompileImports ? null : testArgs.compiledImports))
                 {
-                    string newo = output_dir ~ envData.sep ~ replace(filename.baseName(), ".d", envData.obj);
+                    string newo = output_dir ~ envData.sep ~ filename.baseName().setExtension(envData.obj);
                     toCleanup ~= newo;
 
                     command = format("%s -conf= -m%s -I%s %s %s -od%s -c %s %s", envData.dmd, envData.model, input_dir,

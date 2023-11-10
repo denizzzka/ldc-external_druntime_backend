@@ -302,7 +302,7 @@ private:
 package:
     version (AnyLibc)
     {
-        pthread_mutex_t* handleAddr()
+        pthread_mutex_t* handleAddr() @nogc
         {
             return &m_hndl;
         }

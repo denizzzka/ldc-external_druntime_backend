@@ -1,7 +1,7 @@
 /**
  * Check the arguments to `printf` and `scanf` against the `format` string.
  *
- * Copyright:   Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright:   Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * Authors:     $(LINK2 https://www.digitalmars.com, Walter Bright)
  * License:     $(LINK2 https://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Source:      $(LINK2 https://github.com/dlang/dmd/blob/master/src/dmd/chkformat.d, _chkformat.d)
@@ -19,6 +19,7 @@ import dmd.errors;
 import dmd.expression;
 import dmd.globals;
 import dmd.identifier;
+import dmd.location;
 import dmd.mtype;
 import dmd.target;
 
@@ -176,6 +177,8 @@ bool checkPrintfFormat(ref const Loc loc, scope const char[] format, scope Expre
                         errorMsg(null, e, (c_longsize == 4 ? "uint" : "ulong"), t);
                     else
                         errorMsg(null, e, (c_longsize == 4 ? "int" : "long"), t);
+                    if (t.isintegral() && t.size() != c_longsize)
+                        errorSupplemental(e.loc, "C `long` is %d bytes on your system", c_longsize);
                 }
                 break;
 

@@ -241,7 +241,7 @@ class Foo3
 	}
 }
 alias myint = int;
-static notquit = 1;
+static extern typeof(1) notquit;
 class Test
 {
 	void a()
@@ -357,7 +357,7 @@ void templ(T)(T val)
 {
 	pragma (msg, "Invalid destination type.");
 }
-static char[] charArray = ['"', '\''];
+static extern char[] charArray;
 class Point
 {
 	auto x = 10;
@@ -665,7 +665,7 @@ struct SafeS
 		int* p;
 	}
 }
-void test13x(@(10) int a, @(20) int, @(tuple(30), tuple(40)) int[] arr...)
+void test13x(@(10) int a, @(20) int, @(AliasSeq!(30), AliasSeq!(40)) int[] arr...)
 {
 }
 enum Test14UDA1;

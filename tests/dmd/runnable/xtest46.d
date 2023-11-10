@@ -10,16 +10,16 @@ int
 int(int i, long j = 7L)
 long
 C10390(C10390(C10390(<recursion>)))
-tuple(height)
-tuple(get, get)
-tuple(clear)
-tuple(draw, draw)
+AliasSeq!(height)
+AliasSeq!(get, get)
+AliasSeq!(clear)
+AliasSeq!(draw, draw)
 const(int)
 string[]
 double[]
 double[]
 {}
-tuple("m")
+AliasSeq!("m")
 true
 TFunction1: extern (C) void function()
 ---
@@ -3116,14 +3116,12 @@ template map(fun...)
 
 void test139()
 {
-    /* LDC: FIXME - https://github.com/ldc-developers/ldc/issues/2361
     double[] x;
     alias typeof(map!"a"(x)) T;
     T a = void;
     auto b = map!"a"(x);
     auto c = [map!"a"(x)];
     T[3] d = void;
-    */
 }
 
 
@@ -5014,18 +5012,18 @@ void test6763()
 {
     int n;
 
-    f6763(0);   //With D2: Error: function main.f ((ref const const(int) _param_0)) is not callable using argument types (int)
+    f6763(0);   //With D2: Error: function main.f ((ref const const(int) __param_0)) is not callable using argument types (int)
     c6763(0);
     r6763(n);   static assert(__traits(compiles, r6763(0)));
     i6763(0);
     o6763(n);   static assert(!__traits(compiles, o6763(0)));
 
     // https://issues.dlang.org/show_bug.cgi?id=6755
-    static assert(typeof(f6763).stringof == "void(int _param_0)");
-    static assert(typeof(c6763).stringof == "void(const(int) _param_0)");
-    static assert(typeof(r6763).stringof == "void(ref int _param_0)");
-    static assert(typeof(i6763).stringof == "void(in int _param_0)");
-    static assert(typeof(o6763).stringof == "void(out int _param_0)");
+    static assert(typeof(f6763).stringof == "void(int __param_0)");
+    static assert(typeof(c6763).stringof == "void(const(int) __param_0)");
+    static assert(typeof(r6763).stringof == "void(ref int __param_0)");
+    static assert(typeof(i6763).stringof == "void(in int __param_0)");
+    static assert(typeof(o6763).stringof == "void(out int __param_0)");
 }
 
 /***************************************************/
@@ -5995,7 +5993,7 @@ void test7618(const int x = 1)
 {
     int func(ref int x) { return 1; }
     static assert(!__traits(compiles, func(x)));
-    // Error: function test.foo.func (ref int _param_0) is not callable using argument types (const(int))
+    // Error: function test.foo.func (ref int __param_0) is not callable using argument types (const(int))
 
     int delegate(ref int) dg = (ref int x) => 1;
     static assert(!__traits(compiles, dg(x)));
@@ -6165,14 +6163,6 @@ void test8064()
 
 void foo8220(int){}
 static assert(!__traits(compiles, foo8220(typeof(0)))); // fail
-
-/***************************************************/
-
-void func8105(in ref int x) { }
-
-void test8105()
-{
-}
 
 /***************************************************/
 
@@ -8298,7 +8288,6 @@ int main()
     test12503();
     test8004();
     test8064();
-    test8105();
     test159();
     test12824();
     test8283();

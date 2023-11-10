@@ -1,7 +1,7 @@
 /**
  * Perform constant folding.
  *
- * Copyright:   Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright:   Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * Authors:     $(LINK2 https://www.digitalmars.com, Walter Bright)
  * License:     $(LINK2 https://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Source:      $(LINK2 https://github.com/dlang/dmd/blob/master/src/dmd/optimize.d, _optimize.d)
@@ -25,6 +25,7 @@ import dmd.expression;
 import dmd.expressionsem;
 import dmd.globals;
 import dmd.init;
+import dmd.location;
 import dmd.mtype;
 import dmd.printast;
 import dmd.root.ctfloat;
@@ -188,7 +189,7 @@ private Expression fromConstInitializer(int result, Expression e1)
         {
             // If it is a comma expression involving a declaration, we mustn't
             // perform a copy -- we'd get two declarations of the same variable.
-            // See bugzilla 4465.
+            // See https://issues.dlang.org/show_bug.cgi?id=4465.
             if (e.op == EXP.comma && e.isCommaExp().e1.isDeclarationExp())
                 e = e1;
             else if (e.type != e1.type && e1.type && e1.type.ty != Tident)
@@ -225,7 +226,7 @@ package void setLengthVarIfKnown(VarDeclaration lengthVar, Expression arr)
     if (auto se = arr.isStringExp())
         len = se.len;
     else if (auto ale = arr.isArrayLiteralExp())
-        len = ale.elements.dim;
+        len = ale.elements.length;
     else
     {
         auto tsa = arr.type.toBasetype().isTypeSArray();
@@ -358,7 +359,7 @@ Expression Expression_optimize(Expression e, int result, bool keepLvalue)
 
     void visitAssocArrayLiteral(AssocArrayLiteralExp e)
     {
-        assert(e.keys.dim == e.values.dim);
+        assert(e.keys.length == e.values.length);
         foreach (i, ref ekey; (*e.keys)[])
         {
             expOptimize(ekey, result & WANTexpand);
@@ -370,7 +371,7 @@ Expression Expression_optimize(Expression e, int result, bool keepLvalue)
     {
         if (e.stageflags & stageOptimize)
             return;
-        int old = e.stageflags;
+        const old = e.stageflags;
         e.stageflags |= stageOptimize;
         if (e.elements)
         {
@@ -768,11 +769,8 @@ Expression Expression_optimize(Expression e, int result, bool keepLvalue)
             return;
         if (e.arguments)
         {
-            Type t1 = e.e1.type.toBasetype();
-            if (auto td = t1.isTypeDelegate())
-                t1 = td.next;
             // t1 can apparently be void for __ArrayDtor(T) calls
-            if (auto tf = t1.isTypeFunction())
+            if (auto tf = e.calledFunctionType())
             {
                 foreach (i, ref arg; (*e.arguments)[])
                 {
@@ -1282,19 +1280,25 @@ Expression Expression_optimize(Expression e, int result, bool keepLvalue)
         //printf("CatExp::optimize(%d) %s\n", result, e.toChars());
         if (binOptimize(e, result))
             return;
-        if (auto ce1 = e.e1.isCatExp())
-        {
-            // https://issues.dlang.org/show_bug.cgi?id=12798
-            // optimize ((expr ~ str1) ~ str2)
-            scope CatExp cex = new CatExp(e.loc, ce1.e2, e.e2);
-            cex.type = e.type;
-            Expression ex = Expression_optimize(cex, result, false);
-            if (ex != cex)
+
+        if (e.type == Type.tstring)
+            if (auto ce1 = e.e1.isCatExp())
             {
-                e.e1 = ce1.e1;
-                e.e2 = ex;
+                // https://issues.dlang.org/show_bug.cgi?id=12798
+                // optimize ((expr ~ str1) ~ str2)
+                // https://issues.dlang.org/show_bug.cgi?id=24078
+                // This optimization is only valid if `expr` is a string.
+                // Otherwise it leads to:
+                // `["c"] ~ "a" ~ "b"` becoming `["c"] ~ "ab"`
+                scope CatExp cex = new CatExp(e.loc, ce1.e2, e.e2);
+                cex.type = e.type;
+                Expression ex = Expression_optimize(cex, result, false);
+                if (ex != cex)
+                {
+                    e.e1 = ce1.e1;
+                    e.e2 = ex;
+                }
             }
-        }
         // optimize "str"[] -> "str"
         if (auto se1 = e.e1.isSliceExp())
         {

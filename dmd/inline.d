@@ -4,7 +4,7 @@
  * The AST is traversed, and every function call is considered for inlining using `inlinecost.d`.
  * The function call is then inlined if this cost is below a threshold.
  *
- * Copyright:   Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright:   Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * Authors:     $(LINK2 https://www.digitalmars.com, Walter Bright)
  * License:     $(LINK2 https://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Source:    $(LINK2 https://github.com/dlang/dmd/blob/master/src/dmd/inline.d, _inline.d)
@@ -18,7 +18,6 @@ import core.stdc.stdio;
 import core.stdc.string;
 
 import dmd.aggregate;
-import dmd.apply;
 import dmd.arraytypes;
 import dmd.astenums;
 import dmd.attrib;
@@ -36,9 +35,11 @@ import dmd.id;
 import dmd.identifier;
 import dmd.init;
 import dmd.initsem;
+import dmd.location;
 import dmd.mtype;
 import dmd.opover;
 import dmd.printast;
+import dmd.postordervisitor;
 import dmd.statement;
 import dmd.tokens;
 import dmd.visitor;
@@ -63,23 +64,28 @@ public void inlineScanModule(Module m)
 
     //printf("Module = %p\n", m.sc.scopesym);
 
-    foreach (i; 0 .. m.members.dim)
+    foreach (i; 0 .. m.members.length)
     {
         Dsymbol s = (*m.members)[i];
         //if (global.params.verbose)
         //    message("inline scan symbol %s", s.toChars());
-        scope InlineScanVisitor v = new InlineScanVisitor();
-        s.accept(v);
+        inlineScanDsymbol(s);
     }
     m.semanticRun = PASS.inlinedone;
+}
+
+private void inlineScanDsymbol(Dsymbol s)
+{
+    scope InlineScanVisitorDsymbol v = new InlineScanVisitorDsymbol();
+    s.accept(v);
 }
 
 /***********************************************************
  * Perform the "inline copying" of a default argument for a function parameter.
  *
  * Todo:
- *  The hack for bugzilla 4820 case is still questionable. Perhaps would have to
- *  handle a delegate expression with 'null' context properly in front-end.
+ *  The hack for https://issues.dlang.org/show_bug.cgi?id=4820 case is still questionable.
+ *  Perhaps would have to handle a delegate expression with 'null' context properly in front-end.
  */
 public Expression inlineCopy(Expression e, Scope* sc)
 {
@@ -141,7 +147,7 @@ private final class InlineDoState
     // inline result
     bool foundReturn;
 
-    this(Dsymbol parent, FuncDeclaration fd)
+    this(Dsymbol parent, FuncDeclaration fd) scope
     {
         this.parent = parent;
         this.fd = fd;
@@ -166,7 +172,7 @@ public:
 
     enum asStatements = is(Result == Statement);
 
-    extern (D) this(InlineDoState ids)
+    extern (D) this(InlineDoState ids) scope
     {
         this.ids = ids;
     }
@@ -197,11 +203,11 @@ public:
 
     override void visit(CompoundStatement s)
     {
-        //printf("CompoundStatement.doInlineAs!%s() %d\n", Result.stringof.ptr, s.statements.dim);
+        //printf("CompoundStatement.doInlineAs!%s() %d\n", Result.stringof.ptr, s.statements.length);
         static if (asStatements)
         {
             auto as = new Statements();
-            as.reserve(s.statements.dim);
+            as.reserve(s.statements.length);
         }
 
         foreach (i, sx; *s.statements)
@@ -225,7 +231,7 @@ public:
                     ifs.ifbody &&
                     ifs.ifbody.endsWithReturnStatement() &&
                     !ifs.elsebody &&
-                    i + 1 < s.statements.dim &&
+                    i + 1 < s.statements.length &&
                     (s3 = (*s.statements)[i + 1]) !is null &&
                     s3.endsWithReturnStatement()
                    )
@@ -266,11 +272,11 @@ public:
 
     override void visit(UnrolledLoopStatement s)
     {
-        //printf("UnrolledLoopStatement.doInlineAs!%s() %d\n", Result.stringof.ptr, s.statements.dim);
+        //printf("UnrolledLoopStatement.doInlineAs!%s() %d\n", Result.stringof.ptr, s.statements.length);
         static if (asStatements)
         {
             auto as = new Statements();
-            as.reserve(s.statements.dim);
+            as.reserve(s.statements.length);
         }
 
         foreach (sx; *s.statements)
@@ -293,7 +299,7 @@ public:
 
     override void visit(ScopeStatement s)
     {
-        //printf("ScopeStatement.doInlineAs!%s() %d\n", Result.stringof.ptr, s.statement.dim);
+        //printf("ScopeStatement.doInlineAs!%s() %d\n", Result.stringof.ptr, s.statement.length);
         auto r = doInlineAs!Result(s.statement, ids);
         static if (asStatements)
             result = new ScopeStatement(s.loc, r, s.endloc);
@@ -422,9 +428,9 @@ public:
             if (!a)
                 return null;
 
-            auto newa = new Expressions(a.dim);
+            auto newa = new Expressions(a.length);
 
-            foreach (i; 0 .. a.dim)
+            foreach (i; 0 .. a.length)
             {
                 (*newa)[i] = doInlineAs!Expression((*a)[i], ids);
             }
@@ -440,7 +446,7 @@ public:
         override void visit(SymOffExp e)
         {
             //printf("SymOffExp.doInlineAs!%s(%s)\n", Result.stringof.ptr, e.toChars());
-            foreach (i; 0 .. ids.from.dim)
+            foreach (i; 0 .. ids.from.length)
             {
                 if (e.var != ids.from[i])
                     continue;
@@ -455,7 +461,7 @@ public:
         override void visit(VarExp e)
         {
             //printf("VarExp.doInlineAs!%s(%s)\n", Result.stringof.ptr, e.toChars());
-            foreach (i; 0 .. ids.from.dim)
+            foreach (i; 0 .. ids.from.length)
             {
                 if (e.var != ids.from[i])
                     continue;
@@ -493,7 +499,7 @@ public:
              *      auto x = *(t.vthis.vthis + i.voffset) + *(t.vthis + g.voffset)
              */
             auto v = e.var.isVarDeclaration();
-            if (v && v.nestedrefs.dim && ids.vthis)
+            if (v && v.nestedrefs.length && ids.vthis)
             {
                 Dsymbol s = ids.fd;
                 auto fdv = v.toParent().isFuncDeclaration();
@@ -571,7 +577,7 @@ public:
                 //printf("\t==> result = %s, type = %s\n", result.toChars(), result.type.toChars());
                 return;
             }
-            else if (v && v.nestedrefs.dim)
+            else if (v && v.nestedrefs.length)
             {
                 auto ve = e.copy().isVarExp();
                 ve.originalScope = ids.fd;
@@ -634,7 +640,7 @@ public:
                     if (auto tup = vd.toAlias().isTupleDeclaration())
                     {
                         tup.foreachVar((s) { s; });
-                        result = st.objects.dim;
+                        result = st.objects.length;
                         return;
                     }
                 }
@@ -643,7 +649,7 @@ public:
 
                 if (ids.fd && vd == ids.fd.nrvo_var)
                 {
-                    foreach (i; 0 .. ids.from.dim)
+                    foreach (i; 0 .. ids.from.length)
                     {
                         if (vd != ids.from[i])
                             continue;
@@ -744,6 +750,21 @@ version (IN_LLVM) {} else
             result = ae;
         }
 
+        override void visit(CatExp e)
+        {
+            auto ce = e.copy().isCatExp();
+
+            if (auto lowering = ce.lowering)
+                ce.lowering = doInlineAs!Expression(lowering, ids);
+            else
+            {
+                ce.e1 = doInlineAs!Expression(e.e1, ids);
+                ce.e2 = doInlineAs!Expression(e.e2, ids);
+            }
+
+            result = ce;
+        }
+
         override void visit(BinExp e)
         {
             auto be = cast(BinExp)e.copy();
@@ -763,12 +784,11 @@ version (IN_LLVM) {} else
         override void visit(AssignExp e)
         {
             visit(cast(BinExp)e);
+        }
 
-            if (auto ale = e.e1.isArrayLengthExp())
-            {
-                Type tn = ale.e1.type.toBasetype().nextOf();
-                semanticTypeInfo(null, tn);
-            }
+        override void visit(LoweredAssignExp e)
+        {
+            result = doInlineAs!Expression(e.lowering, ids);
         }
 
         override void visit(EqualExp e)
@@ -951,7 +971,7 @@ public:
     Expression eresult;
     bool again;
 
-    extern (D) this()
+    extern (D) this() scope
     {
     }
 
@@ -1029,7 +1049,7 @@ public:
 
     override void visit(CompoundStatement s)
     {
-        foreach (i; 0 .. s.statements.dim)
+        foreach (i; 0 .. s.statements.length)
         {
             inlineScan((*s.statements)[i]);
         }
@@ -1037,7 +1057,7 @@ public:
 
     override void visit(UnrolledLoopStatement s)
     {
-        foreach (i; 0 .. s.statements.dim)
+        foreach (i; 0 .. s.statements.length)
         {
             inlineScan((*s.statements)[i]);
         }
@@ -1098,7 +1118,7 @@ public:
         s.sdefault = cast(DefaultStatement)sdefault;
         if (s.cases)
         {
-            foreach (i; 0 .. s.cases.dim)
+            foreach (i; 0 .. s.cases.length)
             {
                 Statement scase = (*s.cases)[i];
                 inlineScan(scase);
@@ -1189,7 +1209,7 @@ public:
     {
         if (arguments)
         {
-            foreach (i; 0 .. arguments.dim)
+            foreach (i; 0 .. arguments.length)
             {
                 inlineScan((*arguments)[i]);
             }
@@ -1224,7 +1244,7 @@ public:
         }
         else
         {
-            s.accept(this);
+            inlineScanDsymbol(s);
         }
     }
 
@@ -1243,6 +1263,18 @@ public:
     {
         inlineScan(e.e1);
         inlineScan(e.msg);
+    }
+
+    override void visit(CatExp e)
+    {
+        if (auto lowering = e.lowering)
+        {
+            inlineScan(lowering);
+            return;
+        }
+
+        inlineScan(e.e1);
+        inlineScan(e.e2);
     }
 
     override void visit(BinExp e)
@@ -1287,6 +1319,11 @@ public:
         }
     L1:
         visit(cast(BinExp)e);
+    }
+
+    override void visit(LoweredAssignExp e)
+    {
+        inlineScan(e.lowering);
     }
 
     override void visit(CallExp e)
@@ -1496,7 +1533,7 @@ public:
         //printf("StructLiteralExp.inlineScan()\n");
         if (e.stageflags & stageInlineScan)
             return;
-        int old = e.stageflags;
+        const old = e.stageflags;
         e.stageflags |= stageInlineScan;
         arrayInlineScan(e.elements);
         e.stageflags = old;
@@ -1534,6 +1571,20 @@ public:
             eresult = null;
         }
     }
+}
+
+/***********************************************************
+ * Walk the trees, looking for functions to inline.
+ * Inline any that can be.
+ */
+private extern (C++) final class InlineScanVisitorDsymbol : Visitor
+{
+    alias visit = Visitor.visit;
+public:
+
+    extern (D) this() scope
+    {
+    }
 
     /*************************************
      * Look for function inlining possibilities.
@@ -1555,20 +1606,20 @@ public:
             return;
         if (fd.fbody && !fd.isNaked())
         {
-            auto againsave = again;
-            auto parentsave = parent;
-            parent = fd;
-            do
+            while (1)
             {
-                again = false;
                 fd.inlineNest++;
                 fd.inlineScanned = true;
-                inlineScan(fd.fbody);
+
+                scope InlineScanVisitor v = new InlineScanVisitor();
+                v.parent = fd;
+                v.inlineScan(fd.fbody);
+                bool again = v.again;
+
                 fd.inlineNest--;
+                if (!again)
+                    break;
             }
-            while (again);
-            again = againsave;
-            parent = parentsave;
         }
     }
 
@@ -1577,7 +1628,7 @@ public:
         Dsymbols* decls = d.include(null);
         if (decls)
         {
-            foreach (i; 0 .. decls.dim)
+            foreach (i; 0 .. decls.length)
             {
                 Dsymbol s = (*decls)[i];
                 //printf("AttribDeclaration.inlineScan %s\n", s.toChars());
@@ -1591,7 +1642,7 @@ public:
         //printf("AggregateDeclaration.inlineScan(%s)\n", toChars());
         if (ad.members)
         {
-            foreach (i; 0 .. ad.members.dim)
+            foreach (i; 0 .. ad.members.length)
             {
                 Dsymbol s = (*ad.members)[i];
                 //printf("inline scan aggregate symbol '%s'\n", s.toChars());
@@ -1608,7 +1659,7 @@ public:
         }
         if (!ti.errors && ti.members)
         {
-            foreach (i; 0 .. ti.members.dim)
+            foreach (i; 0 .. ti.members.length)
             {
                 Dsymbol s = (*ti.members)[i];
                 s.accept(this);
@@ -1669,6 +1720,9 @@ private bool canInline(FuncDeclaration fd, bool hasthis, bool hdrscan, bool stat
         assert(fd.semanticRun >= PASS.semantic3done);
     }
 
+    if (fd.skipCodegen)
+        return false;
+
     final switch (statementsToo ? fd.inlineStatusStmt : fd.inlineStatusExp)
     {
     case ILS.yes:
@@ -1704,7 +1758,8 @@ private bool canInline(FuncDeclaration fd, bool hasthis, bool hdrscan, bool stat
         TypeFunction tf = fd.type.isTypeFunction();
 
         // no variadic parameter lists
-        if (tf.parameterList.varargs == VarArg.variadic)
+        if (tf.parameterList.varargs == VarArg.variadic ||
+            tf.parameterList.varargs == VarArg.KRvariadic)
             goto Lno;
 
         /* No lazy parameters when inlining by statement, as the inliner tries to
@@ -1811,8 +1866,7 @@ private bool canInline(FuncDeclaration fd, bool hasthis, bool hdrscan, bool stat
         else
             fd.inlineStatusExp = ILS.yes;
 
-        scope InlineScanVisitor v = new InlineScanVisitor();
-        fd.accept(v); // Don't scan recursively for header content scan
+        inlineScanDsymbol(fd); // Don't scan recursively for header content scan
 
         if (fd.inlineStatusExp == ILS.uninitialized)
         {
@@ -2014,10 +2068,10 @@ private void expandInline(Loc callLoc, FuncDeclaration fd, FuncDeclaration paren
 
     // Set up parameters
     Expression eparams;
-    if (arguments && arguments.dim)
+    if (arguments && arguments.length)
     {
-        assert(fd.parameters.dim == arguments.dim);
-        foreach (i; 0 .. arguments.dim)
+        assert(fd.parameters.length == arguments.length);
+        foreach (i; 0 .. arguments.length)
         {
             auto vfrom = (*fd.parameters)[i];
             auto arg = (*arguments)[i];
@@ -2303,7 +2357,7 @@ private bool expNeedsDtor(Expression exp)
         Expression exp;
 
     public:
-        extern (D) this(Expression exp)
+        extern (D) this(Expression exp) scope
         {
             this.exp = exp;
         }

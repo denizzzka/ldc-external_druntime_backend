@@ -121,8 +121,7 @@ LLGlobalVariable *IrClass::getClassInfoSymbol(bool define) {
       // Construct the metadata and insert it into the module.
       const auto metaname = getMetadataName(CD_PREFIX, typeInfo);
       llvm::NamedMDNode *node = gIR->module.getOrInsertNamedMetadata(metaname);
-      node->addOperand(llvm::MDNode::get(
-          gIR->context(), llvm::makeArrayRef(mdVals, CD_NumFields)));
+      node->addOperand(llvm::MDNode::get(gIR->context(), mdVals));
     }
 
     if (!define)
@@ -246,8 +245,8 @@ LLConstant *IrClass::getVtblInit() {
           if (fd2->isFuture()) {
             continue;
           }
-          if (fd->leastAsSpecialized(fd2) != MATCH::nomatch ||
-              fd2->leastAsSpecialized(fd) != MATCH::nomatch) {
+          if (fd->leastAsSpecialized(fd2, nullptr) != MATCH::nomatch ||
+              fd2->leastAsSpecialized(fd, nullptr) != MATCH::nomatch) {
             TypeFunction *tf = static_cast<TypeFunction *>(fd->type);
             if (tf->ty == TY::Tfunction) {
               cd->error("use of `%s%s` is hidden by `%s`; use `alias %s = "
@@ -738,8 +737,7 @@ LLConstant *IrClass::getClassInfoInterfaces() {
 
     // create Interface struct
     LLConstant *inits[3] = {ci, vtb, off};
-    LLConstant *entry =
-        LLConstantStruct::get(interface_type, llvm::makeArrayRef(inits, 3));
+    LLConstant *entry = LLConstantStruct::get(interface_type, inits);
     constants.push_back(entry);
   }
 

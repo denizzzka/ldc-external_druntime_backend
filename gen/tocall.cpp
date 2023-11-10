@@ -295,7 +295,9 @@ bool DtoLowerMagicIntrinsic(IRState *p, FuncDeclaration *fndecl, CallExp *e,
     assert(ap);
     // variadic extern(D) function with implicit _argptr?
     if (LLValue *argptrMem = p->func()->_argptr) {
-      DtoMemCpy(DtoType(ap->type), DtoLVal(ap), argptrMem); // ap = _argptr
+      // then va_copy the _argptr
+      DLValue argptr(ap->type, argptrMem);
+      gABI->vaCopy(ap, &argptr);
     } else {
       LLValue *llAp = gABI->prepareVaStart(ap);
       p->ir->CreateCall(GET_INTRINSIC_DECL(vastart), llAp, "");
@@ -415,7 +417,7 @@ bool DtoLowerMagicIntrinsic(IRState *p, FuncDeclaration *fndecl, CallExp *e,
     llvm::StoreInst *ret = p->ir->CreateStore(val, ptr);
     ret->setAtomic(llvm::AtomicOrdering(atomicOrdering));
     if (auto alignment = getTypeAllocSize(val->getType())) {
-      ret->setAlignment(LLAlign(alignment));
+      ret->setAlignment(llvm::Align(alignment));
     }
     return true;
   }
@@ -449,7 +451,7 @@ bool DtoLowerMagicIntrinsic(IRState *p, FuncDeclaration *fndecl, CallExp *e,
 
     llvm::LoadInst *load = p->ir->CreateLoad(loadedType, ptr);
     if (auto alignment = getTypeAllocSize(loadedType)) {
-      load->setAlignment(LLAlign(alignment));
+      load->setAlignment(llvm::Align(alignment));
     }
     load->setAtomic(llvm::AtomicOrdering(atomicOrdering));
     llvm::Value *val = load;
@@ -819,7 +821,7 @@ private:
 
 ////////////////////////////////////////////////////////////////////////////////
 
-static LLValue *DtoCallableValue(llvm::FunctionType * ft,DValue *fn) {
+static LLValue *DtoCallableValue(DValue *fn) {
   Type *type = fn->type->toBasetype();
   if (type->ty == TY::Tfunction) {
     return DtoRVal(fn);
@@ -829,7 +831,7 @@ static LLValue *DtoCallableValue(llvm::FunctionType * ft,DValue *fn) {
       LLValue *dg = DtoLVal(fn);
       llvm::StructType *st = isaStruct(DtoType(fn->type));
       LLValue *funcptr = DtoGEP(st, dg, 0, 1);
-      return DtoLoad(ft->getPointerTo(), funcptr, ".funcptr");
+      return DtoLoad(st->getElementType(1), funcptr, ".funcptr");
     }
     LLValue *dg = DtoRVal(fn);
     assert(isaStruct(dg));
@@ -862,7 +864,7 @@ DValue *DtoCallFunction(const Loc &loc, Type *resulttype, DValue *fnval,
   }
 
   // get callee llvm value
-  LLValue *callable = DtoCallableValue(irFty.funcType, fnval);
+  LLValue *callable = DtoCallableValue(fnval);
   LLFunctionType *callableTy = irFty.funcType;
   if (dfnval && dfnval->func->isCsymbol()) {
     // See note in DtoDeclareFunction about K&R foward declared (void) functions
@@ -916,8 +918,8 @@ DValue *DtoCallFunction(const Loc &loc, Type *resulttype, DValue *fnval,
   }
 
   // call the function
-  LLCallBasePtr call = gIR->funcGen().callOrInvoke(callable, callableTy, args,
-                                                   "", tf->isnothrow());
+  llvm::CallBase *call = gIR->funcGen().callOrInvoke(callable, callableTy, args,
+                                                     "", tf->isnothrow());
 
   // PGO: Insert instrumentation or attach profile metadata at indirect call
   // sites.

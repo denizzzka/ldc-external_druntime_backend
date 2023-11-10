@@ -17,6 +17,7 @@
 #include "gen/irstate.h"
 #include "gen/pgo_ASTbased.h"
 #include "gen/trycatchfinally.h"
+#include "gen/variable_lifetime.h"
 #include "llvm/ADT/DenseMap.h"
 #include <vector>
 
@@ -176,6 +177,8 @@ public:
 
   TryCatchFinallyScopes scopes;
 
+  LocalVariableLifetimeAnnotator localVariableLifetimeAnnotator;
+
   JumpTargets jumpTargets;
 
   // PGO information
@@ -199,10 +202,10 @@ public:
 
   /// Emits a call or invoke to the given callee, depending on whether there
   /// are catches/cleanups active or not.
-  LLCallBasePtr callOrInvoke(llvm::Value *callee,
-                             llvm::FunctionType *calleeType,
-                             llvm::ArrayRef<llvm::Value *> args,
-                             const char *name = "", bool isNothrow = false);
+  llvm::CallBase *callOrInvoke(llvm::Value *callee,
+                               llvm::FunctionType *calleeType,
+                               llvm::ArrayRef<llvm::Value *> args,
+                               const char *name = "", bool isNothrow = false);
 
 private:
   IRState &irs;
