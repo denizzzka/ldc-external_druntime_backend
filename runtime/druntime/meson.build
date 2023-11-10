@@ -74,6 +74,7 @@ src = files(
     'src/rt/util/utility.d',
     'src/rt/sections.d',
     'src/rt/sections_android.d',
+    'src/rt/sections_freestanding.d',
     'src/rt/sections_elf_shared.d',
     'src/rt/sections_ldc.d',
     'src/rt/sections_osx_x86.d',
@@ -93,8 +94,6 @@ external_backend_D_versions = []
 
 if use_external_backend
     external_backend_D_versions += [
-        'DruntimeAbstractRt',
-        'CRuntime_Abstract',
         'AsmExternal', #used by fiber module
         #'CoreUnittest',
         'OnlyLowMemUnittest', #disables memory-greedy unittests

@@ -68,7 +68,7 @@ else version (CRuntime_Bionic)
 else version (CRuntime_UClibc)
     public import rt.sections_elf_shared;
 else version (FreeStanding)
-    public import external.rt.sections;
+    public import rt.sections.freestanding;
 else
     static assert(0, "unimplemented");
 
