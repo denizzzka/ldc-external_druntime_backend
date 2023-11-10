@@ -1157,9 +1157,9 @@ static if (__traits(getOverloads, core.stdc.errno, "errno").length == 1
 }
 else version (FreeStanding)
 {
-    static import external.libc.errno;
+    extern (C) ref int __error() @system @nogc nothrow;
 
-    extern(C) pragma(mangle, __traits(identifier, external.libc.errno.__error))
+    extern(C) pragma(mangle, __traits(identifier, __error))
     private ref int fakePureErrno() @nogc nothrow pure @system;
 }
 else
