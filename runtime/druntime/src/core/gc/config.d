@@ -12,14 +12,7 @@ import core.internal.parseoptions;
 
 __gshared Config config;
 
-version (FreeStanding)
-{
-    static import external.core.gc;
-
-    alias Config = external.core.gc.Config;
-}
-else
-    alias Config = DefaultConfigStruct;
+alias Config = DefaultConfigStruct;
 
 struct DefaultConfigStruct
 {

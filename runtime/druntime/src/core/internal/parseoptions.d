@@ -39,6 +39,12 @@ struct MemVal {}
 *
 * fields of the struct are populated by parseOptions().
 */
+version (FreeStanding) {
+    import core.gc.config : CFG = Config;
+
+    extern bool initConfigOptions(CFG)(ref CFG cfg, string cfgname);
+}
+else
 bool initConfigOptions(CFG)(ref CFG cfg, string cfgname)
 {
     string parse(string opt) @nogc nothrow

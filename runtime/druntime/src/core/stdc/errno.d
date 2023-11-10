@@ -155,7 +155,15 @@ else version (Haiku)
 }
 else version (FreeStanding)
 {
-    public import external.libc.errno;
+    @nogc:
+    nothrow:
+
+    extern(C) extern __gshared int errno;
+
+    extern (C) ref int __error() @system
+    {
+        return errno;
+    }
 }
 else
 {
@@ -2085,7 +2093,7 @@ else version (Haiku)
 }
 else version (FreeStanding)
 {
-    public import external.libc.errno;
+    //~ public import external.libc.errno;
 }
 else version (WASI)
 {
