@@ -175,7 +175,10 @@ unittest
  * early in the start process, like in shared module constructors and
  * initialization of the D runtime itself.
  */
-immutable size_t pageSize;
+version (FreeStanding)
+    extern immutable size_t pageSize;
+else
+    immutable size_t pageSize;
 
 ///
 unittest
@@ -221,9 +224,6 @@ private extern (C) void _initialize() @system
     }
     else version (FreeStanding)
     {
-        import external.core.memory : PageSize;
-
-        (cast() pageSize) = PageSize;
     }
     else
         static assert(false, __FUNCTION__ ~ " is not implemented on this platform");
