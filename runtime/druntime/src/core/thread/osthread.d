@@ -2874,8 +2874,10 @@ private
  *  is returned.
  */
 version (FreeStanding)
+{
     extern(D) ThreadID createLowLevelThread(void delegate() nothrow dg, uint stacksize = 0,
                                   void delegate() nothrow cbDllUnload = null) nothrow @nogc;
+}
 else
 ThreadID createLowLevelThread(void delegate() nothrow dg, uint stacksize = 0,
                               void delegate() nothrow cbDllUnload = null) nothrow @nogc
