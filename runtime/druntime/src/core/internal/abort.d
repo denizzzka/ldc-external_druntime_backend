@@ -4,7 +4,7 @@ module core.internal.abort;
  * Use instead of assert(0, msg), since this does not print a message for -release compiled
  * code, and druntime is -release compiled.
  */
-version (DruntimeAbstractRt)
+version (FreeStanding)
 {
     public import external.core.abort : abort;
 }

@@ -163,7 +163,7 @@ else version (Posix)
     alias ulong cpp_ulonglong;
   }
 }
-else version (CRuntime_Abstract)
+else version (FreeStanding)
 {
     public import external.libc.config;
 }

@@ -1389,7 +1389,7 @@ private:
     }
     do
     {
-        version (DruntimeAbstractRt) {} else
+        version (FreeStanding) {} else
         {
             void* pstack = m_ctxt.tstack;
             scope( exit )  m_ctxt.tstack = pstack;
@@ -1424,7 +1424,7 @@ private:
             }
         }
 
-        version (DruntimeAbstractRt)
+        version (FreeStanding)
         {
             import external.core.fiber : initStack;
 

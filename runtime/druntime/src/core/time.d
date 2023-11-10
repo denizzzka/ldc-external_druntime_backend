@@ -330,7 +330,7 @@ else version (Solaris) enum ClockType
     second = 6,
     threadCPUTime = 7,
 }
-else version (DruntimeAbstractRt)
+else version (FreeStanding)
 {
     public import external.core.time: ClockType;
 }
@@ -740,7 +740,7 @@ public:
         }
     }
 
-    version (DruntimeAbstractRt) {} //FIXME: TickDuration is broken
+    version (FreeStanding) {} //FIXME: TickDuration is broken
     else
     version (CoreUnittest) deprecated unittest
     {
@@ -795,7 +795,7 @@ public:
         return Duration(mixin("lhs.hnsecs " ~ op ~ " _hnsecs"));
     }
 
-    version (DruntimeAbstractRt) {} //FIXME: TickDuration is broken
+    version (FreeStanding) {} //FIXME: TickDuration is broken
     else
     version (CoreUnittest) deprecated unittest
     {
@@ -898,7 +898,7 @@ public:
             test1!"%="(Duration(-7), (cast(E)Duration(-5)), Duration(-2));
         }
 
-        version(DruntimeAbstractRt) {} //FIXME: TickDuration is broken
+        version (FreeStanding) {} //FIXME: TickDuration is broken
         else
         foreach (D; AliasSeq!(const Duration, immutable Duration))
         {
@@ -2136,7 +2136,7 @@ struct MonoTimeImpl(ClockType clockType)
     {
         enum clockArg = _posixClock(clockType);
     }
-    else version (DruntimeAbstractRt)
+    else version (FreeStanding)
     {
     }
     else
@@ -2204,7 +2204,7 @@ struct MonoTimeImpl(ClockType clockType)
                                               1_000_000_000L,
                                               ticksPerSecond));
         }
-        else version (DruntimeAbstractRt)
+        else version (FreeStanding)
         {
             import external.core.time : currTicks;
 
@@ -2605,7 +2605,7 @@ extern(C) void _d_initMonoTime() @nogc nothrow
             }
         }
     }
-    else version (DruntimeAbstractRt)
+    else version (FreeStanding)
     {
         import external.core.time : initTicksPerSecond;
 
@@ -2881,7 +2881,7 @@ deprecated:
 
     static pragma(crt_constructor) void time_initializer()
     {
-        version (DruntimeAbstractRt)
+        version (FreeStanding)
         {
             import external.core.time : _ticksPerSec;
 
@@ -3441,7 +3441,7 @@ deprecated:
         Throws:
             $(D TimeException) if it fails to get the time.
       +/
-    version (DruntimeAbstractRt)
+    version (FreeStanding)
     {
         public import external.core.time : currSystemTick;
     }

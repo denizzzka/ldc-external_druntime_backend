@@ -1403,7 +1403,7 @@ class ConservativeGC : GC
 
 /* ============================ Gcx =============================== */
 
-version(DruntimeAbstractRt)
+version (FreeStanding)
 {
     import external.core.memory : PageSize;
 

@@ -24,10 +24,10 @@ version (Posix)
 
     alias ThreadID = pthread_t;
 }
-else version (DruntimeAbstractRt)
+else version (FreeStanding)
     public import external.core.types : ThreadID;
 
-version (DruntimeAbstractRt)
+version (FreeStanding)
     public import external.core.types : ll_ThreadData;
 else
 struct ll_ThreadData

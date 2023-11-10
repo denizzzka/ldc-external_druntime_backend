@@ -48,7 +48,7 @@ version (MinGW)
 version (CRuntime_Glibc)
     version = GNUFP;
 
-version (CRuntime_Abstract)
+version (FreeStanding)
 {
     public import external.libc.stddef : fenv_t, fexcept_t;
 }
@@ -798,7 +798,7 @@ else
 
 }
 
-version (CRuntime_Abstract)
+version (FreeStanding)
 {
     public import external.libc.stddef : FE_DFL_ENV;
 }

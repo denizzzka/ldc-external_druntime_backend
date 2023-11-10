@@ -19,7 +19,7 @@ version (Posix)
     public import core.sys.posix.stdc.time;
 else version (Windows)
     public import core.sys.windows.stdc.time;
-else version(CRuntime_Abstract)
+else version (FreeStanding)
     public import external.libc.time;
 else
     static assert(0, "unsupported system");

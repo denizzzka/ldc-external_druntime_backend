@@ -40,7 +40,7 @@ else version (Posix)
     import core.sys.posix.pthread;
     import core.sys.posix.time;
 }
-else version (DruntimeAbstractRt)
+else version (FreeStanding)
 {
 }
 else
@@ -63,7 +63,7 @@ else
  * indicate that control is not transferred to the waiter when a notification
  * is sent.
  */
-version (DruntimeAbstractRt)
+version (FreeStanding)
 {
     public import external.core.condition : Condition;
 }

@@ -16,7 +16,7 @@ call D main.  Any module containing a D main function declaration will
 cause the compiler to generate a `mixin _d_cmain();` statement to inject
 this code into the module.
 */
-version (DruntimeAbstractRt)
+version (FreeStanding)
 {
     public import external.rt.dmain : _d_cmain;
 }

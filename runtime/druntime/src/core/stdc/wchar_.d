@@ -14,7 +14,7 @@
 
 module core.stdc.wchar_;
 
-version(CRuntime_Abstract)
+version (FreeStanding)
 {
     public import external.libc.wchar_;
 }

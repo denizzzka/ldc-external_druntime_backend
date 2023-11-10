@@ -215,7 +215,7 @@ else version (Posix)
         pthread_mutex_unlock(mtx) && assert(0);
     }
 }
-else version (DruntimeAbstractRt)
+else version (FreeStanding)
 {
     public import external.rt.monitor_ :
         Mutex, initMutex, destroyMutex, lockMutex, unlockMutex;

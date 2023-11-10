@@ -261,7 +261,7 @@ private alias extern(C) int function(char[][] args) MainFunc;
  * runs embedded unittests and then runs the given D main() function,
  * optionally catching and printing any unhandled exceptions.
  */
-version (DruntimeAbstractRt) {} else
+version (FreeStanding) {} else
 extern (C) int _d_run_main(int argc, char** argv, MainFunc mainFunc)
 {
     // Set up _cArgs and array of D char[] slices, then forward to _d_run_main2

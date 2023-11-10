@@ -219,7 +219,7 @@ private extern (C) void _initialize() @system
         GetSystemInfo(&si);
         (cast() pageSize) = cast(size_t) si.dwPageSize;
     }
-    else version (DruntimeAbstractRt)
+    else version (FreeStanding)
     {
         import external.core.memory : PageSize;
 
@@ -1155,7 +1155,7 @@ static if (__traits(getOverloads, core.stdc.errno, "errno").length == 1
     extern(C) pragma(mangle, __traits(identifier, core.stdc.errno.errno))
     private ref int fakePureErrno() @nogc nothrow pure @system;
 }
-else version(CRuntime_Abstract)
+else version (FreeStanding)
 {
     static import external.libc.errno;
 

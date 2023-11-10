@@ -24,7 +24,7 @@ else version (Posix)
     import core.sys.posix.sys.types;
     import core.sys.posix.time;
 }
-else version (DruntimeAbstractRt)
+else version (FreeStanding)
 {
     public import external.core.event : Event;
 }
@@ -72,7 +72,7 @@ struct ProcessFile
 }
 ---
  */
-version (DruntimeAbstractRt){}
+version (FreeStanding){}
 else
 struct Event
 {

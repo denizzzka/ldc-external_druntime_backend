@@ -221,7 +221,7 @@ else
  * A new thread may be created using either derivation or composition, as
  * in the following example.
  */
-version (DruntimeAbstractRt)
+version (FreeStanding)
     public import external.core.thread: Thread;
 else
 class Thread : ThreadBase
@@ -1295,7 +1295,7 @@ version (Posix)
     private __gshared int resumeSignalNumber;
 }
 
-version (DruntimeAbstractRt)
+version (FreeStanding)
 {
     import external.core.thread : external_attachThread;
 
@@ -1757,7 +1757,7 @@ package extern(D) void* getStackTop() nothrow @nogc
         static assert(false, "Architecture not supported.");
 }
 
-version (DruntimeAbstractRt)
+version (FreeStanding)
 {
     static import external.core.thread;
 
@@ -2094,7 +2094,7 @@ private extern (D) bool suspend( Thread t ) nothrow @nogc
  * Throws:
  *  ThreadError if the suspend operation fails for a running thread.
  */
-version (DruntimeAbstractRt)
+version (FreeStanding)
     public import external.core.thread: thread_suspendAll;
 else
 extern (C) void thread_suspendAll() nothrow
@@ -2180,7 +2180,7 @@ extern (C) void thread_suspendAll() nothrow
  * Throws:
  *  ThreadError if the resume fails for a running thread.
  */
-version(DruntimeAbstractRt) {} else
+version (FreeStanding) {} else
 private extern (D) void resume(ThreadBase _t) nothrow @nogc
 {
     Thread t = _t.toThread;
@@ -2246,7 +2246,7 @@ private extern (D) void resume(ThreadBase _t) nothrow @nogc
  * garbage collector on startup and before any other thread routines
  * are called.
  */
-version (DruntimeAbstractRt)
+version (FreeStanding)
     public import external.core.thread : thread_init;
 else
 extern (C) void thread_init() @nogc nothrow
@@ -2346,7 +2346,7 @@ public  __gshared align(__traits(classInstanceAlignment, Thread)) MainThreadStor
  * Terminates the thread module. No other thread routine may be called
  * afterwards.
  */
-version (DruntimeAbstractRt)
+version (FreeStanding)
     public import external.core.thread : thread_term;
 else
 extern (C) void thread_term() @nogc nothrow
@@ -2359,7 +2359,7 @@ extern (C) void thread_term() @nogc nothrow
 // Thread Entry Point and Signal Handlers
 ///////////////////////////////////////////////////////////////////////////////
 
-version (DruntimeAbstractRt)
+version (FreeStanding)
 {
     public import external.core.thread :
         thread_entryPoint,
@@ -2882,7 +2882,7 @@ private
  * Returns: the platform specific thread ID of the new thread. If an error occurs, `ThreadID.init`
  *  is returned.
  */
-version (DruntimeAbstractRt)
+version (FreeStanding)
     public import external.core.thread : createLowLevelThread;
 else
 ThreadID createLowLevelThread(void delegate() nothrow dg, uint stacksize = 0,
@@ -2973,7 +2973,7 @@ ThreadID createLowLevelThread(void delegate() nothrow dg, uint stacksize = 0,
  * Params:
  *  tid = the thread ID returned by `createLowLevelThread`.
  */
-version (DruntimeAbstractRt)
+version (FreeStanding)
     public import external.core.thread : joinLowLevelThread;
 else
 void joinLowLevelThread(ThreadID tid) nothrow @nogc

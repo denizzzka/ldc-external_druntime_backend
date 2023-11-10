@@ -517,7 +517,7 @@ struct ModuleGroup
         if (!doSort(MIctor | MIdtor, _ctors) ||
             !doSort(MItlsctor | MItlsdtor, _tlsctors))
         {
-            version(DruntimeAbstractRt)
+            version (FreeStanding)
             {
                 import external.rt.sections : ctorsDtorsWarning;
 

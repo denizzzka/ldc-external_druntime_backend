@@ -34,7 +34,7 @@ else version (Posix)
     ///
     alias dchar wchar_t;
 }
-else version (CRuntime_Abstract)
+else version (FreeStanding)
 {
     public import external.libc.stddef : wchar_t;
 }

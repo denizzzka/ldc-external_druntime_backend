@@ -981,7 +981,7 @@ public /*FIXME: package*/ __gshared bool multiThreadedFlag = false;
 // Used for suspendAll/resumeAll below.
 public /*FIXME: package*/ __gshared uint suspendDepth = 0;
 
-version(DruntimeAbstractRt)
+version (FreeStanding)
     private alias resume = externDFunc!("external.core.thread.resume", void function(ThreadBase) nothrow @nogc);
 else
     private alias resume = externDFunc!("core.thread.osthread.resume", void function(ThreadBase) nothrow @nogc);

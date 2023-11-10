@@ -49,7 +49,7 @@ else version (Posix)
     import core.sys.posix.pthread;
     import core.sys.posix.semaphore;
 }
-else version (DruntimeAbstractRt)
+else version (FreeStanding)
 {
     public import external.core.semaphore : Semaphore;
 }
@@ -74,7 +74,7 @@ else
  * with "notify" to indicate that control is not transferred to the waiter when
  * a notification is sent.
  */
-version (DruntimeAbstractRt) {}
+version (FreeStanding) {}
 else
 class Semaphore
 {

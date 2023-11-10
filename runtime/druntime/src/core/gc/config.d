@@ -12,7 +12,7 @@ import core.internal.parseoptions;
 
 __gshared Config config;
 
-version(DruntimeAbstractRt)
+version (FreeStanding)
 {
     static import external.core.gc;
 

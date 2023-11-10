@@ -24,7 +24,7 @@ version (Windows)
         EnterCriticalSection, InitializeCriticalSection, LeaveCriticalSection,
         TryEnterCriticalSection+/;
 }
-else version (DruntimeAbstractRt)
+else version (FreeStanding)
 {
     version = AnyLibc;
 }
@@ -47,7 +47,7 @@ else
 // bool tryLock();
 ////////////////////////////////////////////////////////////////////////////////
 
-version (DruntimeAbstractRt)
+version (FreeStanding)
     public import external.core.mutex;
 else
 {

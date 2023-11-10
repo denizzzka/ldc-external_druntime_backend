@@ -84,7 +84,7 @@ private:
     {
         size_t _tlsSize;
     }
-    version (DruntimeAbstractRt)
+    version (FreeStanding)
     {
     }
     else version (UseELF)
@@ -331,7 +331,7 @@ void initSections() nothrow @nogc
 
         scanSegments(phdr, &globalSectionGroup);
     }
-    else version (DruntimeAbstractRt)
+    else version (FreeStanding)
     {
         import external.rt.sections : fillGlobalSectionGroup;
 
@@ -352,7 +352,7 @@ void finiSections() nothrow @nogc
 /***
  * Called once per thread; returns array of thread local storage ranges
  */
-version (DruntimeAbstractRt)
+version (FreeStanding)
 {
     import external.rt.sections : initTLSRanges;
 }
@@ -369,7 +369,7 @@ void[] initTLSRanges() nothrow @nogc
 else
     static assert(0, "TLS range detection not implemented for this OS.");
 
-version (DruntimeAbstractRt)
+version (FreeStanding)
 {
     public import external.rt.sections : finiTLSRanges;
 }

@@ -58,7 +58,7 @@ else version (Win64)
     public import rt.deh_win64_posix;
 else version (Posix)
     public import rt.deh_win64_posix;
-else version (DruntimeAbstractRt)
+else version (FreeStanding)
     public import external.rt.deh;
 else
     static assert (0, "Unsupported architecture");

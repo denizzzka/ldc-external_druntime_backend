@@ -14,7 +14,7 @@
 
 module core.stdc.stdint;
 
-version(CRuntime_Abstract)
+version (FreeStanding)
 {
     public import external.libc.stdint;
 }
@@ -383,7 +383,7 @@ else version (Solaris)
     alias intmax_t  = long;      ///
     alias uintmax_t = ulong;     ///
 }
-else version (CRuntime_Abstract)
+else version (FreeStanding)
 {
     public import external.libc.stdint;
 }
