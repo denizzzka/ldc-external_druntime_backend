@@ -333,11 +333,13 @@ void initSections() nothrow @nogc
     }
     else version (FreeStanding)
     {
-        extern(D) void fillGlobalSectionGroup(ref SectionGroup gsg) nothrow @nogc;
-
         fillGlobalSectionGroup(globalSectionGroup);
     }
 }
+
+version (FreeStanding)
+extern(C) void fillGlobalSectionGroup(ref SectionGroup gsg) nothrow @nogc;
+
 
 /***
  * Gets called on program shutdown just after GC is terminated.
