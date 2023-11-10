@@ -2210,7 +2210,7 @@ struct MonoTimeImpl(ClockType clockType)
         }
         else version (FreeStanding)
         {
-            import external.core.time : currTicks;
+            extern(C) long currTicks() @trusted nothrow @nogc;
 
             return MonoTimeImpl(currTicks);
         }
