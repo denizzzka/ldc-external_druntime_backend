@@ -6,7 +6,7 @@ module core.internal.abort;
  */
 version (FreeStanding)
 {
-    public import external.core.abort : abort;
+    extern(D) void abort(scope string msg, scope string filename = __FILE__, size_t line = __LINE__) @nogc nothrow @safe;
 }
 else
 void abort(scope string msg, scope string filename = __FILE__, size_t line = __LINE__) @nogc nothrow @safe
