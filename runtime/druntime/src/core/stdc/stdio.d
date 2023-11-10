@@ -826,7 +826,7 @@ else version (CRuntime_UClibc)
 }
 else version (FreeStanding)
 {
-    //~ public import external.libc.stdio_;
+    alias fpos_t = c_long;
 }
 else
 {
