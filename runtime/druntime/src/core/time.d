@@ -332,7 +332,11 @@ else version (Solaris) enum ClockType
 }
 else version (FreeStanding)
 {
-    public import external.core.time: ClockType;
+    enum ClockType
+    {
+        normal = 0,
+        second = 6, //used only for druntime core unittest
+    }
 }
 else
 {
