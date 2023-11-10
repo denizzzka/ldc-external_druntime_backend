@@ -1,7 +1,4 @@
-module rt.sections.freestanding;
-
-import rt.sections_ldc : SectionGroup;
-debug(PRINTF) import core.stdc.stdio : printf;
+module rt.sections_freestanding;
 
 // These values described in almost every linker script
 extern(C) extern __gshared void* _data;
@@ -40,35 +37,6 @@ TLSParams getTLSParams() nothrow @nogc
     );
 }
 
-void fillGlobalSectionGroup(ref SectionGroup gsg) nothrow @nogc
-{
-    debug(PRINTF) printf(__FUNCTION__~" called\n");
-
-    // Writeable (non-TLS) data sections covered by GC
-    auto data_start = cast(void*)&_data;
-    ptrdiff_t size = cast(void*)&_ebss - data_start;
-
-    gsg._gcRanges.insertBack(data_start[0 .. size]);
-
-    debug(PRINTF) printf(__FUNCTION__~" done\n");
-}
-
-void finiTLSRanges(void[] rng) nothrow @nogc
-{
-    import core.stdc.stdlib: free;
-
-    debug(PRINTF) printf("finiTLSRanges called\n");
-
-    assert(read_tp_secondary() !is null);
-
-    free(rng.ptr);
-}
-
-package void* read_tp_secondary() nothrow @nogc
-{
-    return freertos.pvTaskGetThreadLocalStoragePointer(null, 0);
-}
-
 void ctorsDtorsWarning() nothrow
 {
     static assert("Deprecation 16211");
@@ -79,10 +47,3 @@ void ctorsDtorsWarning() nothrow
         ~ "to compile. Use runtime option --DRT-oncycle=print to see the cycle details.\n");
  */
 }
-
-version(ARM)
-    public import external.rt.sections_arm: initTLSRanges;
-version(RISCV32)
-    public import external.rt.sections_riscv32: initTLSRanges;
-else
-    static assert("Platform not supported");
