@@ -42,7 +42,7 @@ struct MemVal {}
 version (FreeStanding) {
     import core.gc.config : CFG = Config;
 
-    extern bool initConfigOptions(CFG)(ref CFG cfg, string cfgname);
+    extern(C) bool initConfigOptions(ref CFG cfg, string cfgname);
 }
 else
 bool initConfigOptions(CFG)(ref CFG cfg, string cfgname)
