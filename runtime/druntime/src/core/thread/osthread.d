@@ -222,7 +222,7 @@ else
  * in the following example.
  */
 version (FreeStanding)
-    public import external.core.thread: Thread;
+    extern class Thread;
 else
 class Thread : ThreadBase
 {
@@ -1297,12 +1297,7 @@ version (Posix)
 
 version (FreeStanding)
 {
-    import external.core.thread : external_attachThread;
-
-    private extern (D) ThreadBase attachThread(ThreadBase _thisThread) @nogc nothrow
-    {
-        return external_attachThread(_thisThread);
-    }
+    private extern (D) ThreadBase attachThread(ThreadBase _thisThread) @nogc nothrow;
 }
 else
 private extern (D) ThreadBase attachThread(ThreadBase _thisThread) @nogc nothrow
@@ -1761,10 +1756,7 @@ version (FreeStanding)
 {
     static import external.core.thread;
 
-    package extern(D) void* getStackBottom() nothrow @nogc
-    {
-        return external.core.thread.getStackBottom();
-    }
+    package extern(D) void* getStackBottom() nothrow @nogc;
 }
 else
 version (LDC_Windows)
@@ -2095,7 +2087,7 @@ private extern (D) bool suspend( Thread t ) nothrow @nogc
  *  ThreadError if the suspend operation fails for a running thread.
  */
 version (FreeStanding)
-    public import external.core.thread: thread_suspendAll;
+    extern (C) void thread_suspendAll() nothrow;
 else
 extern (C) void thread_suspendAll() nothrow
 {
@@ -2247,7 +2239,7 @@ private extern (D) void resume(ThreadBase _t) nothrow @nogc
  * are called.
  */
 version (FreeStanding)
-    public import external.core.thread : thread_init;
+    extern (C) void thread_init() @nogc nothrow;
 else
 extern (C) void thread_init() @nogc nothrow
 {
@@ -2347,7 +2339,7 @@ public  __gshared align(__traits(classInstanceAlignment, Thread)) MainThreadStor
  * afterwards.
  */
 version (FreeStanding)
-    public import external.core.thread : thread_term;
+    extern (C) void thread_term() @nogc nothrow;
 else
 extern (C) void thread_term() @nogc nothrow
 {
@@ -2361,10 +2353,9 @@ extern (C) void thread_term() @nogc nothrow
 
 version (FreeStanding)
 {
-    public import external.core.thread :
-        thread_entryPoint,
-        thread_suspendHandler,
-        thread_resumeHandler;
+    extern(C) void thread_entryPoint(void* arg) nothrow;
+    extern(C) void thread_suspendHandler(int sig) nothrow;
+    extern(C) void thread_resumeHandler(int sig) nothrow;
 }
 else version (Windows)
 {
@@ -2883,7 +2874,8 @@ private
  *  is returned.
  */
 version (FreeStanding)
-    public import external.core.thread : createLowLevelThread;
+    extern(D) ThreadID createLowLevelThread(void delegate() nothrow dg, uint stacksize = 0,
+                                  void delegate() nothrow cbDllUnload = null) nothrow @nogc;
 else
 ThreadID createLowLevelThread(void delegate() nothrow dg, uint stacksize = 0,
                               void delegate() nothrow cbDllUnload = null) nothrow @nogc
@@ -2974,7 +2966,7 @@ ThreadID createLowLevelThread(void delegate() nothrow dg, uint stacksize = 0,
  *  tid = the thread ID returned by `createLowLevelThread`.
  */
 version (FreeStanding)
-    public import external.core.thread : joinLowLevelThread;
+    extern(C) void joinLowLevelThread(ThreadID tid) nothrow @nogc;
 else
 void joinLowLevelThread(ThreadID tid) nothrow @nogc
 {
