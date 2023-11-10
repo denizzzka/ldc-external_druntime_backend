@@ -2613,14 +2613,14 @@ extern(C) void _d_initMonoTime() @nogc nothrow
     }
     else version (FreeStanding)
     {
-        import external.core.time : initTicksPerSecond;
-
         initTicksPerSecond(tps);
     }
     else
         static assert(0, "Unsupported platform");
 }
 
+version (FreeStanding)
+extern(C) void initTicksPerSecond(ref long[] tps) @nogc nothrow;
 
 // Tests for MonoTimeImpl.currTime. It has to be outside, because MonoTimeImpl
 // is a template. This unittest block also makes sure that MonoTimeImpl actually
