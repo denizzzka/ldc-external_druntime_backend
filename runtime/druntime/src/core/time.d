@@ -2620,7 +2620,10 @@ extern(C) void _d_initMonoTime() @nogc nothrow
 }
 
 version (FreeStanding)
-extern(C) void initTicksPerSecond(ref long[] tps) @nogc nothrow;
+{
+    extern(C) void initTicksPerSecond(ref long[] tps) @nogc nothrow;
+    extern(C) extern immutable int _ticksPerSec;
+}
 
 // Tests for MonoTimeImpl.currTime. It has to be outside, because MonoTimeImpl
 // is a template. This unittest block also makes sure that MonoTimeImpl actually
@@ -2889,8 +2892,6 @@ deprecated:
     {
         version (FreeStanding)
         {
-            import external.core.time : _ticksPerSec;
-
             ticksPerSec = _ticksPerSec;
         }
         else
