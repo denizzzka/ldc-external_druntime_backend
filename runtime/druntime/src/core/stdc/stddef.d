@@ -36,7 +36,7 @@ else version (Posix)
 }
 else version (FreeStanding)
 {
-    public import external.libc.stddef : wchar_t;
+    alias wchar_t = dchar;
 }
 else version (WASI)
 {

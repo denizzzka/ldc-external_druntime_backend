@@ -98,7 +98,7 @@ else version (Solaris) enum RAND_MAX = 0x7fff;
 else version (CRuntime_Bionic) enum RAND_MAX = 0x7fffffff;
 else version (CRuntime_Musl) enum RAND_MAX = 0x7fffffff;
 else version (CRuntime_UClibc) enum RAND_MAX = 0x7fffffff;
-else version (FreeStanding) public import external.libc.stdlib: RAND_MAX;
+else version (FreeStanding) extern immutable int RAND_MAX;
 else version (WASI) enum RAND_MAX = 0x7fffffff;
 else static assert( false, "Unsupported platform" );
 
@@ -250,5 +250,5 @@ version (CRuntime_Microsoft)
 }
 else version (FreeStanding)
 {
-    public import external.libc.stdlib;
+    extern(C) void* aligned_alloc(size_t _align, size_t size);
 }

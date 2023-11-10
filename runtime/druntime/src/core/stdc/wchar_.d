@@ -14,11 +14,7 @@
 
 module core.stdc.wchar_;
 
-version (FreeStanding)
-{
-    public import external.libc.wchar_;
-}
-else:
+version (FreeStanding) {} else:
 
 import core.stdc.config;
 import core.stdc.stdarg; // for va_list

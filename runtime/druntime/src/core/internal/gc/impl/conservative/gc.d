@@ -1405,9 +1405,9 @@ class ConservativeGC : GC
 
 version (FreeStanding)
 {
-    import external.core.memory : PageSize;
+    import core.memory : pageSize;
 
-    enum PAGESIZE = PageSize;
+    enum PAGESIZE = pageSize;
 }
 else
 enum

@@ -348,7 +348,7 @@ else version (CRuntime_UClibc)
 }
 else version (FreeStanding)
 {
-    public import external.libc.stdio_;
+    //~ public import external.libc.stdio_;
 }
 else version (WASI)
 {
@@ -826,7 +826,7 @@ else version (CRuntime_UClibc)
 }
 else version (FreeStanding)
 {
-    public import external.libc.stdio_;
+    //~ public import external.libc.stdio_;
 }
 else
 {
@@ -1166,7 +1166,11 @@ else version (CRuntime_UClibc)
 }
 else version (FreeStanding)
 {
-    public import external.libc.stdio_ : stdin, stdout, stderr;
+    struct FILE;
+
+    __gshared FILE* stdin;
+    __gshared FILE* stdout;
+    __gshared FILE* stderr;
 }
 else version (WASI)
 {
@@ -1913,7 +1917,7 @@ else version (CRuntime_UClibc)
 }
 else version (FreeStanding)
 {
-    public import external.libc.stdio_;
+    extern(C) int snprintf(scope char* s, size_t n, scope const char* format, ...) nothrow @nogc;
 }
 else version (WASI)
 {

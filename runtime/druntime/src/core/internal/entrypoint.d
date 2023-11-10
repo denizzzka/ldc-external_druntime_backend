@@ -16,11 +16,6 @@ call D main.  Any module containing a D main function declaration will
 cause the compiler to generate a `mixin _d_cmain();` statement to inject
 this code into the module.
 */
-version (FreeStanding)
-{
-    public import external.rt.dmain : _d_cmain;
-}
-else
 template _d_cmain()
 {
     extern(C)
@@ -56,6 +51,11 @@ template _d_cmain()
                     return main(argc, argv);
                 }
             }
+        }
+        else version (FreeStanding)
+        {
+            int _d_run_main(int argc, char** argv, void* mainFunc);
+            int main(int argc, char** argv);
         }
         else
             static assert(false);
