@@ -3447,7 +3447,7 @@ deprecated:
       +/
     version (FreeStanding)
     {
-        public import external.core.time : currSystemTick;
+        extern(D) static @property TickDuration currSystemTick() @trusted nothrow @nogc;
     }
     else
     static @property TickDuration currSystemTick() @trusted nothrow @nogc
