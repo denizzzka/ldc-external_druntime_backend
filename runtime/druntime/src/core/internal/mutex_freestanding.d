@@ -11,12 +11,12 @@ class Mutex : Object.Monitor
 {
     import core.sync.exception;
 
-    private void* mtx = void;
+    private shared void* mtx = void;
 
     this() @nogc nothrow
     {
         alias createRecursiveMutex = externDFunc!("core.internal.mutex_freestanding.createRecursiveMutex",
-            void* function() nothrow @nogc);
+            shared(void)* function() nothrow @nogc);
 
         mtx = createRecursiveMutex();
     }
@@ -29,7 +29,7 @@ class Mutex : Object.Monitor
     ~this() @nogc nothrow
     {
         alias deleteRecursiveMutex = externDFunc!("core.internal.mutex_freestanding.deleteRecursiveMutex",
-            void function(void*) nothrow @nogc);
+            void function(shared void*) nothrow @nogc);
 
         deleteRecursiveMutex(mtx);
     }
@@ -38,7 +38,7 @@ class Mutex : Object.Monitor
     if (is(Q == Mutex) || is(Q == shared Mutex))
     {
         alias takeMutexRecursive = externDFunc!("core.internal.mutex_freestanding.takeMutexRecursive",
-            bool function(void*) nothrow @nogc);
+            bool function(shared void*) nothrow @nogc);
 
         // Infinity wait
         if(takeMutexRecursive(mtx) != true)
@@ -53,7 +53,7 @@ class Mutex : Object.Monitor
     if (is(Q == Mutex) || is(Q == shared Mutex))
     {
         alias giveMutexRecursive = externDFunc!("core.internal.mutex_freestanding.giveMutexRecursive",
-            bool function(void*) nothrow @nogc);
+            bool function(shared void*) nothrow @nogc);
 
         if(giveMutexRecursive(mtx) != true)
         {
