@@ -805,11 +805,6 @@ else
 
 }
 
-version (FreeStanding)
-{
-    public import external.libc.stddef : FE_DFL_ENV;
-}
-else
 version (GNUFP)
 {
     ///
@@ -878,6 +873,12 @@ else version (CRuntime_UClibc)
 {
     ///
     enum FE_DFL_ENV = cast(fenv_t*)(-1);
+}
+else version (FreeStanding)
+{
+    private extern const fenv_t __fe_dfl_env;
+    ///
+    enum FE_DFL_ENV = &__fe_dfl_env;
 }
 else
 {
