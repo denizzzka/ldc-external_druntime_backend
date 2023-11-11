@@ -1426,12 +1426,11 @@ private:
 
         version (FreeStanding)
         {
-            import external.core.fiber : initStack;
+            import core.internal.traits : externDFunc;
 
-            version(StackGrowsDown)
-                initStack!true(m_ctxt);
-            else
-                initStack!false(m_ctxt);
+            alias initFreestandingStack = externDFunc!("core.thread.fiber.initFreestandingStack", void function(StackContext*) nothrow @nogc);
+
+            initFreestandingStack(m_ctxt);
         }
         else
         version (AsmX86_Windows)
