@@ -170,7 +170,7 @@ nothrow @nogc:
 
 
     /// Set the event to "signaled", so that waiting clients are resumed
-    void set()
+    void setIfInitialized()
     {
         version (Windows)
         {

@@ -3450,7 +3450,7 @@ Lmark:
         stopGC = true;
         while (atomicLoad(stoppedThreads) < startedThreads && !allThreadsDead)
         {
-            evStart.set();
+            evStart.setIfInitialized();
             evDone.wait(dur!"msecs"(1));
         }
 
@@ -3479,7 +3479,7 @@ Lmark:
         {
             evStart.wait();
             pullFromScanStack();
-            evDone.set();
+            evDone.setIfInitialized();
         }
         stoppedThreads.atomicOp!"+="(1);
     }
