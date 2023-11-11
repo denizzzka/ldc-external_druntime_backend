@@ -59,6 +59,7 @@ else version (Win64)
 else version (Posix)
     public import rt.deh_win64_posix;
 else version (FreeStanding)
-    public import external.rt.deh;
+{
+}
 else
     static assert (0, "Unsupported architecture");
