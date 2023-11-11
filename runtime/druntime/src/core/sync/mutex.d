@@ -48,7 +48,7 @@ else
 ////////////////////////////////////////////////////////////////////////////////
 
 version (FreeStanding)
-    public import external.core.mutex;
+    public import core.internal.mutex_freestanding : Mutex;
 else
 {
 
