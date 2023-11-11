@@ -10,7 +10,6 @@ import object;
 class Mutex : Object.Monitor
 {
     import core.sync.exception;
-    import core.internal.abort;
 
     private void* mtx = void;
 
@@ -20,9 +19,6 @@ class Mutex : Object.Monitor
             void* function() nothrow @nogc);
 
         mtx = createRecursiveMutex();
-
-        if(mtx is null)
-            abort("Error: mutex was not created");
     }
 
     this() @nogc shared
