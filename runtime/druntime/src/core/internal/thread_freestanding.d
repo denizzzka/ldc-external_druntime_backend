@@ -3,6 +3,7 @@ module core.internal.thread_freestanding;
 version (FreeStanding):
 
 import core.internal.traits : externDFunc;
+import core.sync.event: Event;
 import core.time : Duration;
 import core.thread.threadbase : ThreadBase;
 import core.thread.types : ThreadID;
@@ -17,14 +18,20 @@ class Thread : ThreadBase
     @nogc:
     nothrow:
 
+    struct TaskProperties
+    {
+        void* sys_task_handler;
+        Event joinEvent;
+        void* stackBuff;
+    }
+
     ref auto _m_sz()
     {
         return m_sz;
     }
 
+    TaskProperties taskProperties;
     private shared bool m_isRunning;
-    //FIXME: allocate and deallocate it!!
-    void* taskProperties;
 
     /// Initializes a thread object which has no associated executable function.
     /// This is used for the main thread initialized in thread_init().
@@ -32,7 +39,7 @@ class Thread : ThreadBase
     {
     }
 
-    private alias thread_ctor_impl = externDFunc!("core.internal.thread_freestanding.thread_ctor_impl",
+    private alias initTaskProperties = externDFunc!("core.internal.thread_freestanding.initTaskProperties",
         void function(Thread) nothrow @nogc @safe);
 
     this(void function() fn, size_t sz = 0) @safe nothrow
@@ -40,7 +47,8 @@ class Thread : ThreadBase
     {
         super(fn, sz);
 
-        thread_ctor_impl(this);
+        initTaskProperties(this);
+        taskProperties.joinEvent = Event(true, false);
     }
 
     this(void delegate() dg, size_t sz = 0) @safe nothrow
@@ -48,14 +56,19 @@ class Thread : ThreadBase
     {
         super(dg, sz);
 
-        thread_ctor_impl(this);
+        initTaskProperties(this);
+        taskProperties.joinEvent = Event(true, false);
     }
 
-    this(void function() fn, size_t sz = 0, /* string file = __FILE__, size_t line = __LINE__ */) @safe nothrow;
+    ~this() nothrow @nogc
+    {
+        import core.stdc.stdlib: free;
 
-    this(void delegate() dg, size_t sz = 0, /* string file = __FILE__, size_t line = __LINE__ */) @safe nothrow;
+        if(taskProperties.stackBuff) // not main thread
+            free(taskProperties.stackBuff);
 
-    ~this() nothrow @nogc;
+        destructBeforeDtor();
+    }
 
     extern(D) private void initTaskProperties() @safe nothrow;
 
