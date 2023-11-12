@@ -8,7 +8,7 @@ import core.internal.traits : externDFunc;
 nothrow:
 @nogc:
 
-private alias MonitorMutex = shared void*;
+alias MonitorMutex = shared void*;
 alias Mutex = MonitorMutex;
 
 void initMutex(MonitorMutex* mtx)
