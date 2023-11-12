@@ -17,10 +17,12 @@ class Thread : ThreadBase
     nothrow:
 
     private shared bool m_isRunning;
+    //FIXME: allocate and deallocate it!!
+    void* taskProperties;
 
     /// Initializes a thread object which has no associated executable function.
     /// This is used for the main thread initialized in thread_init().
-    private this(size_t sz = 0) @safe pure nothrow @nogc
+    this(size_t sz = 0) @safe pure nothrow @nogc
     {
     }
 
@@ -32,7 +34,7 @@ class Thread : ThreadBase
 
     extern(D) private void initTaskProperties() @safe nothrow;
 
-    private void initDataStorage() nothrow
+    void initDataStorage() nothrow
     {
         assert(m_curr is &m_main);
 
@@ -51,7 +53,7 @@ class Thread : ThreadBase
 
     import core.atomic: atomicStore, atomicLoad, MemoryOrder;
 
-    private void isRunning(bool status) @property nothrow @nogc
+    void isRunning(bool status) @property nothrow @nogc
     {
         atomicStore!(MemoryOrder.raw)(m_isRunning, status);
     }
