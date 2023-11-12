@@ -20,7 +20,7 @@ class Thread : ThreadBase
 
     struct TaskProperties
     {
-        void* sys_task_handler;
+        void* task_control_block; //TCB
         Event joinEvent;
         void* stackBuff;
     }
@@ -82,7 +82,10 @@ class Thread : ThreadBase
         tlsGCdataInit();
     }
 
-    final Thread start() nothrow;
+    ref auto _nAboutToStart() { return nAboutToStart; }
+    ref auto _pAboutToStart() { return pAboutToStart; }
+
+    final Thread start() nothrow { return thread_start(this); }
 
     static Thread getThis() @safe
     {
@@ -112,9 +115,15 @@ class Thread : ThreadBase
         assert(false, "Not implemented");
     }
 
-    override final Throwable join( bool rethrow = true );
+    override final Throwable join( bool rethrow = true ) { return thread_join(this, rethrow); }
 
     static void sleep(Duration val);
 
     static void yield();
 }
+
+private:
+nothrow @nogc:
+
+extern(D) Thread thread_start(Thread);
+extern(D) Throwable thread_join(Thread, bool);
