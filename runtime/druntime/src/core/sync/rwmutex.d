@@ -15,6 +15,9 @@
  */
 module core.sync.rwmutex;
 
+//TODO: unsupported
+version (FreeStanding) {}
+else:
 
 public import core.sync.exception;
 import core.sync.condition;

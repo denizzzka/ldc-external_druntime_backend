@@ -43,6 +43,7 @@ src = files(
     'src/core/sync/event.d',
     'src/core/sync/exception.d',
     'src/core/sync/mutex.d',
+    'src/core/sync/rwmutex.d',
     'src/core/sync/semaphore.d',
     'src/core/time.d',
     'src/core/threadasm.S',
