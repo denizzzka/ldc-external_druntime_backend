@@ -79,9 +79,9 @@ struct Event
     in(evnt)
     {
         alias waitEvent = externDFunc!("core.internal.event_freestanding.waitEvent",
-            void function(void*) nothrow @nogc @safe);
+            void function(void*, bool) nothrow @nogc @safe);
 
-        waitEvent(evnt);
+        waitEvent(evnt, clearOnExit);
     }
 
     bool wait(Duration tmout)
@@ -89,8 +89,8 @@ struct Event
     in(evnt)
     {
         alias waitEventWithTimeout = externDFunc!("core.internal.event_freestanding.waitEventWithTimeout",
-            bool function(void*, Duration) nothrow @nogc @safe);
+            bool function(void*, bool, Duration) nothrow @nogc @safe);
 
-        return waitEventWithTimeout(evnt, tmout);
+        return waitEventWithTimeout(evnt, clearOnExit, tmout);
     }
 }
