@@ -222,7 +222,7 @@ else
  * in the following example.
  */
 version (FreeStanding)
-    public import external.core.thread: Thread;
+    public import core.internal.thread_freestanding : Thread;
 else
 class Thread : ThreadBase
 {
@@ -1754,8 +1754,6 @@ package extern(D) void* getStackTop() nothrow @nogc
 
 version (FreeStanding)
 {
-    static import external.core.thread;
-
     package extern(D) void* getStackBottom() nothrow @nogc;
 }
 else

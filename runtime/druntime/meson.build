@@ -33,6 +33,7 @@ src = files(
     'src/core/internal/semaphore_freestanding.d',
     'src/core/internal/spinlock.d',
     'src/core/internal/string.d',
+    'src/core/internal/thread_freestanding.d',
     'src/core/internal/traits.d',
     'src/core/internal/util/array.d',
     'src/core/lifetime.d',
