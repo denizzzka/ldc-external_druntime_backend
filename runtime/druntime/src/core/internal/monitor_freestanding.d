@@ -8,7 +8,7 @@ import core.internal.traits : externDFunc;
 nothrow:
 @nogc:
 
-private alias MonitorMutex = shared(void)*;
+private alias MonitorMutex = shared void*;
 alias Mutex = MonitorMutex;
 
 void initMutex(MonitorMutex* mtx)
@@ -17,9 +17,6 @@ void initMutex(MonitorMutex* mtx)
         MonitorMutex function() nothrow @nogc);
 
     *mtx = createMutex();
-
-    if(*mtx is null)
-        onOutOfMemoryError();
 }
 
 void destroyMutex(MonitorMutex* mtx)
