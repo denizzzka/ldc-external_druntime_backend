@@ -13,6 +13,10 @@
 
 module core.stdc.math;
 
+//TODO: unsupported
+version (FreeStanding) {}
+else:
+
 import core.stdc.config;
 
 version (OSX)

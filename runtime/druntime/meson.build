@@ -56,6 +56,7 @@ src = files(
     'src/core/stdc/assert_.d',
     'src/core/stdc/fenv.d',
     'src/core/stdc/errno.d',
+    'src/core/stdc/math.d',
     'src/core/stdc/stdarg.d',
     'src/core/stdc/stdint.d',
     'src/core/stdc/stdio.d',
