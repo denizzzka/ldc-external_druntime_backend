@@ -11,6 +11,10 @@
 
 module rt.cover;
 
+//TODO: unsupported
+version (FreeStanding) {}
+else:
+
 import core.internal.util.math : min, max;
 
 private

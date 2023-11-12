@@ -69,6 +69,7 @@ src = files(
     'src/rt/arraycat.d',
     'src/rt/cast_.d',
     'src/rt/config.d',
+    'src/rt/cover.d',
     'src/rt/critical_.d',
     'src/rt/deh.d',
     'src/rt/deh_win64_posix.d',
