@@ -215,9 +215,10 @@ private
     }
 
   // Look above the definition of 'class Fiber' for some information about the implementation of this routine
-  version (AsmExternal)
+  version (FreeStanding)
   {
       extern (C) void fiber_switchContext( void** oldp, void* newp ) nothrow @nogc;
+
       version (AArch64)
           extern (C) void fiber_trampoline() nothrow;
   }
