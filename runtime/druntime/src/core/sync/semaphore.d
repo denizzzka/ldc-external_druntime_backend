@@ -51,7 +51,6 @@ else version (Posix)
 }
 else version (FreeStanding)
 {
-    public import external.core.semaphore : Semaphore;
 }
 else
 {
@@ -74,7 +73,10 @@ else
  * with "notify" to indicate that control is not transferred to the waiter when
  * a notification is sent.
  */
-version (FreeStanding) {}
+version (FreeStanding)
+{
+    public import core.internal.semaphore_freestanding : Semaphore;
+}
 else
 class Semaphore
 {

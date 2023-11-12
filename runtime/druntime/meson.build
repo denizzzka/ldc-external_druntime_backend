@@ -28,6 +28,7 @@ src = files(
     'src/core/internal/mutex_freestanding.d',
     'src/core/internal/parseoptions.d',
     'src/core/internal/qsort.d',
+    'src/core/internal/semaphore_freestanding.d',
     'src/core/internal/spinlock.d',
     'src/core/internal/string.d',
     'src/core/internal/traits.d',
