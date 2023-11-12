@@ -2,6 +2,7 @@ module core.internal.thread_freestanding;
 
 version (FreeStanding):
 
+import core.internal.traits : externDFunc;
 import core.time : Duration;
 import core.thread.threadbase : ThreadBase;
 import core.thread.types : ThreadID;
@@ -16,6 +17,11 @@ class Thread : ThreadBase
     @nogc:
     nothrow:
 
+    ref auto _m_sz()
+    {
+        return m_sz;
+    }
+
     private shared bool m_isRunning;
     //FIXME: allocate and deallocate it!!
     void* taskProperties;
@@ -24,6 +30,25 @@ class Thread : ThreadBase
     /// This is used for the main thread initialized in thread_init().
     this(size_t sz = 0) @safe pure nothrow @nogc
     {
+    }
+
+    private alias thread_ctor_impl = externDFunc!("core.internal.thread_freestanding.thread_ctor_impl",
+        void function(Thread) nothrow @nogc @safe);
+
+    this(void function() fn, size_t sz = 0) @safe nothrow
+    in(fn !is null)
+    {
+        super(fn, sz);
+
+        thread_ctor_impl(this);
+    }
+
+    this(void delegate() dg, size_t sz = 0) @safe nothrow
+    in(dg !is null)
+    {
+        super(dg, sz);
+
+        thread_ctor_impl(this);
     }
 
     this(void function() fn, size_t sz = 0, /* string file = __FILE__, size_t line = __LINE__ */) @safe nothrow;
