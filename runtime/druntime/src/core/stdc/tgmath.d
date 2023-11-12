@@ -14,6 +14,10 @@
 
 module core.stdc.tgmath;
 
+//TODO: unsupported
+version (FreeStanding) {}
+else:
+
 import core.stdc.config;
 private static import core.stdc.math;
 private static import core.stdc.complex;

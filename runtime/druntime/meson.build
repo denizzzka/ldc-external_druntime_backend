@@ -60,6 +60,7 @@ src = files(
     'src/core/stdc/stdarg.d',
     'src/core/stdc/stdint.d',
     'src/core/stdc/stdio.d',
+    'src/core/stdc/tgmath.d',
     'src/core/stdc/wchar_.d',
     'src/object.d',
     'src/rt/adi.d',
