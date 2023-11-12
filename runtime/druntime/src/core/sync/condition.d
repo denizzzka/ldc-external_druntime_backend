@@ -65,7 +65,7 @@ else
  */
 version (FreeStanding)
 {
-    public import external.core.condition : Condition;
+    public import core.internal.condition_freestanding : Condition;
 }
 else
 class Condition

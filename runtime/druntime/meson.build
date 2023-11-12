@@ -13,6 +13,7 @@ src = files(
     'src/core/internal/array/equality.d',
     'src/core/internal/array/utils.d',
     'src/core/internal/backtrace/unwind.d',
+    'src/core/internal/condition_freestanding.d',
     'src/core/internal/container/common.d',
     'src/core/internal/convert.d',
     'src/core/internal/container/treap.d',
