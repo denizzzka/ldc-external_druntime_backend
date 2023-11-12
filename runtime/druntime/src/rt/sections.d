@@ -92,6 +92,9 @@ static assert(is(typeof(&initTLSRanges) RT == return) &&
               is(typeof(&finiTLSRanges) == void function(RT) nothrow @nogc) &&
               is(typeof(&scanTLSRanges) == void function(RT, scope void delegate(void*, void*) nothrow) nothrow));
 
+// TODO: add support for FreeStanding
+version (FreeStanding) {}
+else
 version (Shared)
 {
     static assert(is(typeof(&pinLoadedLibraries) == void* function() nothrow @nogc));
