@@ -17,6 +17,7 @@ src = files(
     'src/core/internal/convert.d',
     'src/core/internal/container/treap.d',
     'src/core/internal/entrypoint.d',
+    'src/core/internal/event_freestanding.d',
     'src/core/internal/gc/bits.d',
     'src/core/internal/gc/impl/conservative/gc.d',
     'src/core/internal/gc/impl/manual/gc.d',

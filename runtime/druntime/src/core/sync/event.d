@@ -26,7 +26,6 @@ else version (Posix)
 }
 else version (FreeStanding)
 {
-    public import external.core.event : Event;
 }
 else
 {
@@ -72,7 +71,10 @@ struct ProcessFile
 }
 ---
  */
-version (FreeStanding){}
+version (FreeStanding)
+{
+    public import core.internal.event_freestanding : Event;
+}
 else
 struct Event
 {
