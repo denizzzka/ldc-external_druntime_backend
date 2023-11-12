@@ -217,7 +217,7 @@ else version (Posix)
 }
 else version (FreeStanding)
 {
-    public import external.rt.monitor_ :
+    public import core.internal.monitor_freestanding :
         Mutex, initMutex, destroyMutex, lockMutex, unlockMutex;
 }
 else

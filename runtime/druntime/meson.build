@@ -26,6 +26,7 @@ src = files(
     'src/core/internal/gc/os.d',
     'src/core/internal/gc/proxy.d',
     'src/core/internal/lifetime.d',
+    'src/core/internal/monitor_freestanding.d',
     'src/core/internal/mutex_freestanding.d',
     'src/core/internal/parseoptions.d',
     'src/core/internal/qsort.d',
