@@ -16,7 +16,6 @@ class Thread : ThreadBase
     }
 
     @nogc:
-    nothrow:
 
     struct TaskProperties
     {
@@ -87,7 +86,7 @@ class Thread : ThreadBase
 
     final Thread start() nothrow { return thread_start(this); }
 
-    static Thread getThis() @safe
+    static Thread getThis() @safe nothrow
     {
         return cast(Thread) ThreadBase.getThis;
     }
@@ -115,15 +114,15 @@ class Thread : ThreadBase
         assert(false, "Not implemented");
     }
 
-    override final Throwable join( bool rethrow = true ) { return thread_join(this, rethrow); }
+    override final Throwable join(bool rethrow = true) { return thread_join(this, rethrow); }
 
-    static void sleep(Duration val);
+    static void sleep(Duration val) nothrow;
 
-    static void yield();
+    static void yield() nothrow;
 }
 
 private:
-nothrow @nogc:
+@nogc:
 
-extern(D) Thread thread_start(Thread);
+extern(D) Thread thread_start(Thread) nothrow;
 extern(D) Throwable thread_join(Thread, bool);
