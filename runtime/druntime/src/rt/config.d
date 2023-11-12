@@ -69,6 +69,10 @@ version (LDC) // use @weak
                 import core.sys.windows.windows : GetModuleHandleA, GetProcAddress;
                 p = GetProcAddress(GetModuleHandleA(null), Sym.mangleof);
             }
+            else version (FreeStanding)
+            {
+                assert(p, "TODO: not implemented");
+            }
             else
                 static assert(0, "Unsupported platform");
 
