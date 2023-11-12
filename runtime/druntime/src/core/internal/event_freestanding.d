@@ -48,7 +48,7 @@ struct Event
 
         terminateEvent(evnt);
 
-        evnt = null;
+        debug evnt = null;
     }
 
     bool setIfInitialized() @safe
