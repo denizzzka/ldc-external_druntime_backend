@@ -15,6 +15,7 @@
 #include "dmd/id.h"
 #include "dmd/identifier.h"
 #include "dmd/init.h"
+#include "dmd/ldcbindings.h"
 #include "dmd/module.h"
 #include "dmd/mtype.h"
 #include "dmd/root/port.h"
@@ -594,7 +595,7 @@ public:
     // valid array ops would have been transformed by optimize
     if ((t1->ty == TY::Tarray || t1->ty == TY::Tsarray) &&
         (t2->ty == TY::Tarray || t2->ty == TY::Tsarray)) {
-      base->error("Array operation `%s` not recognized", base->toChars());
+      error(base->loc, "array operation `%s` not recognized", base->toChars());
       fatal();
     }
   }
@@ -638,8 +639,8 @@ public:
     if (auto ce = e->isCommaExp()) {
       Expression *newCommaRhs = getLValExp(ce->e2);
       if (newCommaRhs != ce->e2) {
-        CommaExp *newComma = static_cast<CommaExp *>(ce->copy());
-        newComma->e2 = newCommaRhs;
+        CommaExp *newComma =
+            createCommaExp(ce->loc, ce->e1, newCommaRhs, ce->isGenerated);
         newComma->type = newCommaRhs->type;
         e = newComma;
       }
@@ -964,11 +965,13 @@ public:
     result = new DLValue(e->type, DtoBitCast(V, DtoPtrToType(e->type)));
   }
 
-  static llvm::PointerType * getWithSamePointeeType(llvm::PointerType *p, unsigned as) {
-#if LDC_LLVM_VER >= 1300
-    return llvm::PointerType::getWithSamePointeeType(p, as);
+  static llvm::PointerType * getWithSamePointeeType(llvm::PointerType *p, unsigned addressSpace) {
+#if LDC_LLVM_VER >= 1700
+    return llvm::PointerType::get(p->getContext(), addressSpace);
+#elif LDC_LLVM_VER >= 1300
+    return llvm::PointerType::getWithSamePointeeType(p, addressSpace);
 #else
-    return p->getPointerElementType()->getPointerTo(as);
+    return p->getPointerElementType()->getPointerTo(addressSpace);
 #endif
   }
 
@@ -1919,9 +1922,10 @@ public:
     LOG_SCOPE;
 
     if (e->func->isStatic()) {
-      e->error("can't take delegate of static function `%s`, it does not "
-               "require a context ptr",
-               e->func->toChars());
+      error(e->loc,
+            "can't take delegate of static function `%s`, it does not "
+            "require a context ptr",
+            e->func->toChars());
     }
 
     LLPointerType *int8ptrty = getPtrToType(LLType::getInt8Ty(gIR->context()));
@@ -2159,8 +2163,7 @@ public:
                          e->type->toChars());
     LOG_SCOPE;
 
-    // TODO: still required?
-    if (global.params.betterC) {
+    if (!global.params.useGC) {
       error(
           e->loc,
           "array concatenation of expression `%s` requires the GC which is not "
@@ -2186,6 +2189,22 @@ public:
                          e->type->toChars());
     LOG_SCOPE;
 
+    if (!global.params.useGC) {
+      error(e->loc,
+            "appending to array in `%s` requires the GC which is not available "
+            "with -betterC",
+            e->toChars());
+      result =
+          new DSliceValue(e->type, llvm::UndefValue::get(DtoType(e->type)));
+      return;
+    }
+
+    if (e->lowering) {
+      assert(e->op != EXP::concatenateDcharAssign);
+      result = toElem(e->lowering);
+      return;
+    }
+
     result = toElem(e->e1);
 
     Type *e1type = e->e1->type->toBasetype();
@@ -2195,6 +2214,7 @@ public:
 
     if (e1type->ty == TY::Tarray && e2type->ty == TY::Tdchar &&
         (elemtype->ty == TY::Tchar || elemtype->ty == TY::Twchar)) {
+      assert(e->op == EXP::concatenateDcharAssign);
       if (elemtype->ty == TY::Tchar) {
         // append dchar to char[]
         DtoAppendDCharToString(e->loc, result, e->e2);
@@ -2203,7 +2223,7 @@ public:
         DtoAppendDCharToUnicodeString(e->loc, result, e->e2);
       }
     } else {
-      e->error("ICE: array append should have been lowered to `_d_arrayappend{T,cTX}`!");
+      error(e->loc, "ICE: array append should have been lowered to `_d_arrayappend{T,cTX}`!");
       fatal();
     }
   }
@@ -2601,7 +2621,7 @@ public:
   //////////////////////////////////////////////////////////////////////////////
 
   void visit(TypeExp *e) override {
-    e->error("type `%s` is not an expression", e->toChars());
+    error(e->loc, "type `%s` is not an expression", e->toChars());
     // TODO: Improve error handling. DMD just returns some value here and hopes
     // some more sensible error messages will be triggered.
     fatal();
@@ -2762,7 +2782,7 @@ public:
     IF_LOG Logger::print("PowExp::toElem() %s\n", e->toChars());
     LOG_SCOPE;
 
-    e->error("must import `std.math` to use `^^` operator");
+    error(e->loc, "must import `std.math` to use `^^` operator");
     result = new DNullValue(e->type, llvm::UndefValue::get(DtoType(e->type)));
   }
 
@@ -2812,8 +2832,9 @@ public:
 
 #define STUB(x)                                                                \
   void visit(x *e) override {                                                  \
-    e->error("Internal compiler error: Type `" #x "` not implemented: `%s`",   \
-             e->toChars());                                                    \
+    error(e->loc,                                                              \
+          "Internal compiler error: Type `" #x "` not implemented: `%s`",      \
+          e->toChars());                                                       \
     fatal();                                                                   \
   }
   STUB(Expression)

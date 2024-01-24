@@ -249,7 +249,7 @@ install_macos_prerequisites_template: &INSTALL_MACOS_PREREQUISITES_TEMPLATE
 environment:
   CIRRUS_CLONE_DEPTH: 50
   HOST_LDC_VERSION: 1.31.0
-  LLVM_VERSION: 16.0.6
+  LLVM_VERSION: 17.0.6
   GITHUB_TOKEN: ENCRYPTED[0955bd48c8d4e5391446fc0149d0719ad0b63df27ec9e6c180a5730a5b10dc7f28f09d1383423db158d21380ee2b022a]
 
 task:
@@ -377,9 +377,9 @@ task:
   << : *PACKAGING_STEPS_TEMPLATE
 
 task:
-  name: FreeBSD 12.4 x64
+  name: FreeBSD 13.2 x64
   freebsd_instance:
-    image_family: freebsd-12-4
+    image_family: freebsd-13-2
     cpu: 4
     memory: 8G
   timeout_in: 60m

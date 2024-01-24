@@ -85,16 +85,16 @@ cl::opt<DLLImport, true> dllimport(
                    "-fvisibility=public)")));
 
 static cl::opt<bool, true> verbose("v", cl::desc("Verbose"), cl::ZeroOrMore,
-                                   cl::location(global.params.verbose));
+                                   cl::location(global.params.v.verbose));
 
 static cl::opt<bool, true>
     vcolumns("vcolumns",
              cl::desc("Print character (column) numbers in diagnostics"),
-             cl::ZeroOrMore, cl::location(global.params.showColumns));
+             cl::ZeroOrMore, cl::location(global.params.v.showColumns));
 
 static cl::opt<bool, true>
     vgc("vgc", cl::desc("List all gc allocations including hidden ones"),
-        cl::ZeroOrMore, cl::location(global.params.vgc));
+        cl::ZeroOrMore, cl::location(global.params.v.gc));
 
 // Dummy data type for custom parsers where the help output shouldn't display
 // any value.
@@ -106,14 +106,14 @@ struct VTemplatesParser : public cl::parser<DummyDataType> {
 
   bool parse(cl::Option &O, llvm::StringRef /*ArgName*/, llvm::StringRef Arg,
              DummyDataType & /*Val*/) {
-    global.params.vtemplates = true;
+    global.params.v.templates = true;
 
     if (Arg.empty()) {
       return false;
     }
 
     if (Arg == "list-instances") {
-      global.params.vtemplatesListInstances = true;
+      global.params.v.templatesListInstances = true;
       return false;
     }
 
@@ -136,23 +136,23 @@ static cl::opt<bool, true> verbose_cg_ast("vcg-ast", cl::ZeroOrMore, cl::Hidden,
                                           cl::location(global.params.vcg_ast));
 
 static cl::opt<unsigned, true> errorLimit(
-    "verrors", cl::ZeroOrMore, cl::location(global.params.errorLimit),
+    "verrors", cl::ZeroOrMore, cl::location(global.params.v.errorLimit),
     cl::desc("Limit the number of error messages (0 means unlimited)"));
 
 static cl::opt<bool, true>
     showGaggedErrors("verrors-spec", cl::ZeroOrMore,
-                     cl::location(global.params.showGaggedErrors),
+                     cl::location(global.params.v.showGaggedErrors),
                      cl::desc("Show errors from speculative compiles such as "
                               "__traits(compiles,...)"));
 
 static cl::opt<bool, true> printErrorContext(
     "verrors-context", cl::ZeroOrMore,
-    cl::location(global.params.printErrorContext),
+    cl::location(global.params.v.printErrorContext),
     cl::desc(
         "Show error messages with the context of the erroring source line"));
 
 static cl::opt<MessageStyle, true> verrorStyle(
-    "verror-style", cl::ZeroOrMore, cl::location(global.params.messageStyle),
+    "verror-style", cl::ZeroOrMore, cl::location(global.params.v.messageStyle),
     cl::desc(
         "Set the style for file/line number annotations on compiler messages"),
     cl::values(
@@ -165,7 +165,7 @@ static cl::opt<MessageStyle, true> verrorStyle(
 
 static cl::opt<unsigned, true>
     verrorSupplements("verror-supplements", cl::ZeroOrMore,
-                      cl::location(global.params.errorSupplementLimit),
+                      cl::location(global.params.v.errorSupplementLimit),
                       cl::desc("Limit the number of supplemental messages for "
                                "each error (0 means unlimited)"));
 
@@ -177,10 +177,6 @@ static cl::opt<Diagnostic, true> warnings(
         clEnumValN(DIAGNOSTICinform, "wi",
                    "Enable warnings as messages (compilation will continue)")),
     cl::init(DIAGNOSTICoff));
-
-static cl::opt<bool, true> warningsObsolete(
-    "wo", cl::ZeroOrMore, cl::location(global.params.obsolete),
-    cl::desc("Enable warnings about use of obsolete features"));
 
 static cl::opt<bool, true> ignoreUnsupportedPragmas(
     "ignore", cl::desc("Ignore unsupported pragmas"), cl::ZeroOrMore,
@@ -575,6 +571,17 @@ cl::opt<bool> fNullPointerIsValid(
         "optimize away the branches accordingly."));
 
 cl::opt<bool>
+    fNoExceptions("fno-exceptions", cl::ZeroOrMore,
+                  cl::desc("Disable generation of exception stack unwinding "
+                           "code, assuming no Exceptions will be thrown"));
+
+cl::opt<bool> fNoModuleInfo("fno-moduleinfo", cl::ZeroOrMore,
+                            cl::desc("Disable generation of ModuleInfos"));
+
+cl::opt<bool> fNoRTTI("fno-rtti", cl::ZeroOrMore,
+                      cl::desc("Disable generation of TypeInfos"));
+
+cl::opt<bool>
     fSplitStack("fsplit-stack", cl::ZeroOrMore,
                 cl::desc("Use segmented stack (see Clang documentation)"));
 
@@ -716,7 +723,9 @@ cl::opt<bool> dynamicCompileTlsWorkaround(
     cl::Hidden);
 #endif
 
-#if LDC_LLVM_VER >= 1400
+#if LDC_LLVM_VER >= 1700
+bool enableOpaqueIRPointers = true; // typed pointers are no longer supported from LLVM 17
+#elif LDC_LLVM_VER >= 1400
 bool enableOpaqueIRPointers = false;
 #endif
 
@@ -760,7 +769,7 @@ void createClashingOptions() {
 
   // Step 2. Add the LDC options.
   new cl::opt<bool, true, FlagParser<bool>>(
-      "color", cl::ZeroOrMore, cl::location(global.params.color),
+      "color", cl::ZeroOrMore, cl::location(global.params.v.color),
       cl::desc("(*) Force colored console output"));
   new cl::opt<bool, true>("ffast-math", cl::ZeroOrMore, cl::location(fFastMath),
                           cl::desc("Set @fastmath for all functions."));
@@ -793,6 +802,7 @@ void hideLLVMOptions() {
       "aarch64-neon-syntax", "aarch64-use-aa",
       "abort-on-max-devirt-iterations-reached",
       "addrsig", "align-loops", "allow-ginsert-as-artifact",
+      "amdgpu-atomic-optimizer-strategy",
       "amdgpu-bypass-slow-div", "amdgpu-disable-loop-alignment",
       "amdgpu-disable-power-sched", "amdgpu-dpp-combine",
       "amdgpu-dump-hsa-metadata", "amdgpu-enable-flat-scratch",
@@ -805,7 +815,7 @@ void hideLLVMOptions() {
       "arm-implicit-it", "asm-instrumentation", "asm-show-inst",
       "atomic-counter-update-promoted", "atomic-first-counter",
       "basic-block-sections",
-      "basicblock-sections", "bounds-checking-single-trap",
+      "basicblock-sections", "bounds-checking-single-trap", "bpf-stack-size",
       "cfg-hide-cold-paths",
       "cfg-hide-deoptimize-paths", "cfg-hide-unreachable-paths",
       "code-model", "cost-kind", "cppfname", "cppfor", "cppgen",
@@ -813,13 +823,14 @@ void hideLLVMOptions() {
       "cvp-dont-process-adds", "debug-counter", "debug-entry-values",
       "debugger-tune", "debugify-func-limit", "debugify-level",
       "debugify-quiet", "debug-info-correlate",
-      "denormal-fp-math", "denormal-fp-math-f32", "disable-debug-info-verifier",
+      "denormal-fp-math", "denormal-fp-math-f32",
+      "disable-auto-upgrade-debug-info", "disable-debug-info-verifier",
       "disable-i2p-p2i-opt",
       "disable-objc-arc-checkforcfghazards", "disable-promote-alloca-to-lds",
       "disable-promote-alloca-to-vector", "disable-slp-vectorization",
       "disable-spill-fusing",
       "do-counter-promotion", "dot-cfg-mssa", "dwarf64", "emit-call-site-info",
-      "emit-dwarf-unwind",
+      "emit-compact-unwind-non-canonical", "emit-dwarf-unwind",
       "emscripten-cxx-exceptions-allowed",
       "emscripten-cxx-exceptions-whitelist",
       "emulated-tls", "enable-approx-func-fp-math", "enable-correct-eh-support",
@@ -839,9 +850,10 @@ void hideLLVMOptions() {
       "experimental-debug-variable-locations",
       "fatal-assembler-warnings", "filter-print-funcs",
       "force-dwarf-frame-section", "force-opaque-pointers",
+      "force-tail-folding-style",
       "fs-profile-debug-bw-threshold", "fs-profile-debug-prob-diff-threshold",
       "generate-merged-base-profiles",
-      "gpsize", "hash-based-counter-split",
+      "gpsize", "hash-based-counter-split", "hexagon-rdf-limit",
       "hot-cold-split", "ignore-xcoff-visibility",
       "imp-null-check-page-size", "imp-null-max-insts-to-consider",
       "import-all-index", "incremental-linker-compatible",
@@ -863,10 +875,12 @@ void hideLLVMOptions() {
       "mips-compact-branches", "mips16-constant-islands", "mips16-hard-float",
       "mir-strip-debugify-only", "misexpect-tolerance", "mlsm", "mno-compound",
       "mno-fixup", "mno-ldc1-sdc1", "mno-pairing", "mwarn-missing-parenthesis",
-      "mwarn-noncontigious-register", "mwarn-sign-mismatch",
-      "no-discriminators", "no-type-check", "no-xray-index",
+      "mwarn-noncontigious-register", "mwarn-sign-mismatch", "mxcoff-roptr",
+      "no-discriminators", "no-integrated-as", "no-type-check", "no-xray-index",
       "nozero-initialized-in-bss", "nvptx-sched4reg",
       "objc-arc-annotation-target-identifier", "opaque-pointers",
+      "pgo-block-coverage", "pgo-temporal-instrumentation",
+      "pgo-view-block-coverage-graph",
       "pie-copy-relocations", "poison-checking-function-local",
       "polly-dump-after", "polly-dump-after-file", "polly-dump-before",
       "polly-dump-before-file", "pre-RA-sched", "print-after-all",
@@ -876,7 +890,8 @@ void hideLLVMOptions() {
       "profile-file", "profile-info-file", "profile-verifier-noassert",
       "pseudo-probe-for-profiling",
       "r600-ir-structurize", "rdf-dump", "rdf-limit", "recip", "regalloc",
-      "relax-elf-relocations", "remarks-section", "rewrite-map-file", "rng-seed",
+      "relax-elf-relocations", "remarks-section", "rewrite-map-file",
+      "riscv-add-build-attributes", "rng-seed",
       "runtime-counter-relocation", "safepoint-ir-verifier-print-only",
       "sample-profile-check-record-coverage",
       "sample-profile-check-sample-coverage",
@@ -911,7 +926,7 @@ void hideLLVMOptions() {
       "x86-branches-within-32B-boundaries", "x86-early-ifcvt",
       "x86-pad-max-prefix-size",
       "x86-recip-refinement-steps", "x86-use-vzeroupper",
-      "xcoff-traceback-table",
+      "xcoff-traceback-table", "xray-function-index",
 
       // We enable -fdata-sections/-ffunction-sections by default where it makes
       // sense for reducing code size, so hide them to avoid confusion.

@@ -16,17 +16,31 @@
 #include "driver/targetmachine.h"
 
 #include "dmd/errors.h"
+#include "driver/args.h"
 #include "driver/cl_options.h"
 #include "gen/logger.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSwitch.h"
+#if LDC_LLVM_VER < 1700
 #include "llvm/ADT/Triple.h"
-#include "llvm/IR/Module.h"
-#include "llvm/MC/MCObjectFileInfo.h"
 #include "llvm/MC/SubtargetFeature.h"
 #include "llvm/Support/Host.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/TargetParser.h"
+#if LDC_LLVM_VER >= 1400
+#include "llvm/Support/AArch64TargetParser.h"
+#include "llvm/Support/ARMTargetParser.h"
+#endif
+#else
+#include "llvm/TargetParser/AArch64TargetParser.h"
+#include "llvm/TargetParser/ARMTargetParser.h"
+#include "llvm/TargetParser/Host.h"
+#include "llvm/TargetParser/SubtargetFeature.h"
+#include "llvm/TargetParser/TargetParser.h"
+#include "llvm/TargetParser/Triple.h"
+#endif
+#include "llvm/IR/Module.h"
+#include "llvm/MC/MCObjectFileInfo.h"
+#include "llvm/Support/CommandLine.h"
 #if LDC_LLVM_VER >= 1400
 #include "llvm/MC/TargetRegistry.h"
 #else
@@ -35,10 +49,6 @@
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
-#if LDC_LLVM_VER >= 1400
-#include "llvm/Support/AArch64TargetParser.h"
-#include "llvm/Support/ARMTargetParser.h"
-#endif
 
 #include "gen/optimizer.h"
 
@@ -440,9 +450,30 @@ createTargetMachine(const std::string targetTriple, const std::string arch,
     triple = llvm::Triple(
         llvm::Triple::normalize(llvm::sys::getDefaultTargetTriple()));
 
-    // We only support OSX, so darwin should really be macosx.
+    // Apple: translate darwin to macos, apparently like clang
     if (triple.getOS() == llvm::Triple::Darwin) {
-      triple.setOS(llvm::Triple::MacOSX);
+      llvm::SmallString<16> osname;
+      osname += "macos";
+      // We have to specify OS version in the triple to avoid linker warnings,
+      // see https://github.com/ldc-developers/ldc/issues/4501.
+      // If environment variable MACOSX_DEPLOYMENT_TARGET is not set, then use
+      // host OS version.
+      // https://developer.apple.com/library/archive/documentation/DeveloperTools/Conceptual/cross_development/Configuring/configuring.html
+      std::string envVersion = env::get("MACOSX_DEPLOYMENT_TARGET");
+      if (!envVersion.empty()) {
+        osname += envVersion;
+      } else {
+#if LDC_LLVM_VER >= 1400
+        llvm::VersionTuple OSVersion;
+        triple.getMacOSXVersion(OSVersion);
+        osname += OSVersion.getAsString();
+#else
+        // Hardcode the version, because `getMacOSXVersion` is not available.
+        osname += "10.7";
+#endif
+      }
+
+      triple.setOSName(osname);
     }
 
     // Handle -m32/-m64.
@@ -540,6 +571,10 @@ createTargetMachine(const std::string targetTriple, const std::string arch,
       // these OSes.
       // On Android, PIC is default as well.
       relocModel = llvm::Reloc::PIC_;
+    } else if (triple.isOSFreeBSD()) {
+      // We default to PIC code to avoid linking issues on FreeBSD, especially
+      // on aarch64.
+      relocModel = llvm::Reloc::PIC_;
     } else {
       // ARM for other than Darwin or Android defaults to static
       switch (triple.getArch()) {
@@ -604,7 +639,10 @@ createTargetMachine(const std::string targetTriple, const std::string arch,
   // LLVM fork. LLVM 7+ enables regular emutls by default; prevent that.
   if (triple.getEnvironment() == llvm::Triple::Android) {
     targetOptions.EmulatedTLS = false;
+#if LDC_LLVM_VER < 1700
+    // Removed in this commit: https://github.com/llvm/llvm-project/commit/0d333bf0e3aa37e2e6ae211e3aa80631c3e01b85
     targetOptions.ExplicitEmulatedTLS = true;
+#endif
   }
 
   const std::string finalFeaturesString =

@@ -67,7 +67,7 @@ public void inlineScanModule(Module m)
     foreach (i; 0 .. m.members.length)
     {
         Dsymbol s = (*m.members)[i];
-        //if (global.params.verbose)
+        //if (global.params.v.verbose)
         //    message("inline scan symbol %s", s.toChars());
         inlineScanDsymbol(s);
     }
@@ -106,7 +106,7 @@ public Expression inlineCopy(Expression e, Scope* sc)
     int cost = inlineCostExpression(e);
     if (cost >= COST_MAX)
     {
-        e.error("cannot inline default argument `%s`", e.toChars());
+        error(e.loc, "cannot inline default argument `%s`", e.toChars());
         return ErrorExp.get();
     }
     scope ids = new InlineDoState(sc.parent, null);
@@ -727,9 +727,20 @@ version (IN_LLVM) {} else
         {
             //printf("NewExp.doInlineAs!%s(): %s\n", Result.stringof.ptr, e.toChars());
             auto ne = e.copy().isNewExp();
+            auto lowering = ne.lowering;
+            if (lowering)
+                if (auto ce = lowering.isCallExp())
+                    if (ce.f.ident == Id._d_newarrayT)
+                    {
+                        ne.lowering = doInlineAs!Expression(lowering, ids);
+                        goto LhasLowering;
+                    }
+
             ne.thisexp = doInlineAs!Expression(e.thisexp, ids);
             ne.argprefix = doInlineAs!Expression(e.argprefix, ids);
             ne.arguments = arrayExpressionDoInline(e.arguments);
+
+        LhasLowering:
             result = ne;
 
             semanticTypeInfo(null, e.type);
@@ -763,6 +774,21 @@ version (IN_LLVM) {} else
             }
 
             result = ce;
+        }
+
+        override void visit(CatAssignExp e)
+        {
+            auto cae = cast(CatAssignExp) e.copy();
+
+            if (auto lowering = cae.lowering)
+                cae.lowering = doInlineAs!Expression(cae.lowering, ids);
+            else
+            {
+                cae.e1 = doInlineAs!Expression(e.e1, ids);
+                cae.e2 = doInlineAs!Expression(e.e2, ids);
+            }
+
+            result = cae;
         }
 
         override void visit(BinExp e)
@@ -971,7 +997,7 @@ public:
     Expression eresult;
     bool again;
 
-    extern (D) this() scope
+    extern (D) this() scope @safe
     {
     }
 
@@ -1277,6 +1303,14 @@ public:
         inlineScan(e.e2);
     }
 
+    override void visit(CatAssignExp e)
+    {
+        if (auto lowering = e.lowering)
+            inlineScan(lowering);
+        else
+            visit(cast(BinExp) e);
+    }
+
     override void visit(BinExp e)
     {
         inlineScan(e.e1);
@@ -1485,7 +1519,7 @@ public:
             return;
         }
 
-        if (global.params.verbose && (eresult || sresult))
+        if (global.params.v.verbose && (eresult || sresult))
             message("inlined   %s =>\n          %s", fd.toPrettyChars(), parent.toPrettyChars());
 
         if (eresult && e.type.ty != Tvoid)
@@ -1582,7 +1616,7 @@ private extern (C++) final class InlineScanVisitorDsymbol : Visitor
     alias visit = Visitor.visit;
 public:
 
-    extern (D) this() scope
+    extern (D) this() scope @safe
     {
     }
 
@@ -2311,7 +2345,7 @@ private bool isConstruction(Expression e)
  * Returns:
  *      true if v's initializer is the only value assigned to v
  */
-private bool onlyOneAssign(VarDeclaration v, FuncDeclaration fd)
+private bool onlyOneAssign(VarDeclaration v, FuncDeclaration fd) @safe
 {
     if (!v.type.isMutable())
         return true;            // currently the only case handled atm
@@ -2357,7 +2391,7 @@ private bool expNeedsDtor(Expression exp)
         Expression exp;
 
     public:
-        extern (D) this(Expression exp) scope
+        extern (D) this(Expression exp) scope @safe
         {
             this.exp = exp;
         }

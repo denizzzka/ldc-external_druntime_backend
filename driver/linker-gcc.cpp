@@ -27,6 +27,13 @@
 
 #if LDC_WITH_LLD
 #include "lld/Common/Driver.h"
+#if LDC_LLVM_VER >= 1700
+LLD_HAS_DRIVER(coff)
+LLD_HAS_DRIVER(elf)
+LLD_HAS_DRIVER(mingw)
+LLD_HAS_DRIVER(macho)
+LLD_HAS_DRIVER(wasm)
+#endif
 #endif
 
 //////////////////////////////////////////////////////////////////////////////
@@ -165,8 +172,8 @@ std::string getLTOdylibPath() {
     error(Loc(), "-flto-binary: '%s' not found", ltoLibrary.c_str());
     fatal();
   } else {
-    // The plugin packaged with LDC has a "-ldc" suffix.
-    std::string searchPath = exe_path::prependLibDir("libLTO-ldc.dylib");
+    // Give priority to the plugin packaged with LDC.
+    std::string searchPath = exe_path::prependLibDir("libLTO.dylib");
     if (llvm::sys::fs::exists(searchPath))
       return searchPath;
 
@@ -756,7 +763,7 @@ int linkObjToBinaryGcc(llvm::StringRef outputPath,
     argsBuilder.build(outputPath, defaultLibNames);
 
     const auto fullArgs =
-        getFullArgs("lld", argsBuilder.args, global.params.verbose);
+        getFullArgs("lld", argsBuilder.args, global.params.v.verbose);
 
     // CanExitEarly == true means that LLD can and will call `exit()` when
     // errors occur.
@@ -861,5 +868,5 @@ int linkObjToBinaryGcc(llvm::StringRef outputPath,
 
   // try to call linker
   return executeToolAndWait(Loc(), tool, argsBuilder->args,
-                            global.params.verbose);
+                            global.params.v.verbose);
 }

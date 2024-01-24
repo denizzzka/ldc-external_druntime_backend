@@ -18,7 +18,11 @@
 #include "dmd/errors.h"
 #include "dmd/globals.h"
 #include "gen/to_string.h"
+#if LDC_LLVM_VER < 1700
 #include "llvm/ADT/Triple.h"
+#else
+#include "llvm/TargetParser/Triple.h"
+#endif
 
 namespace {
 namespace cl = llvm::cl;
@@ -31,7 +35,7 @@ cl::opt<std::string> IRPGOInstrGenFile(
              "'=<filename>' or LLVM_PROFILE_FILE env var)"),
     cl::ZeroOrMore, cl::ValueOptional);
 
-/// Option for generating IR-based PGO instrumentation (LLVM pass)
+/// Option for using IR-based PGO instrumentation (LLVM pass)
 cl::opt<std::string> IRPGOInstrUseFile(
     "fprofile-use", cl::ZeroOrMore, cl::value_desc("filename"),
     cl::desc("Use instrumentation data for profile-guided optimization"),
@@ -45,11 +49,19 @@ cl::opt<std::string> ASTPGOInstrGenFile(
              "'=<filename>' or LLVM_PROFILE_FILE env var)"),
     cl::ZeroOrMore, cl::ValueOptional);
 
-/// Option for generating frontend-based PGO instrumentation
+/// Option for using frontend-based PGO instrumentation
 cl::opt<std::string> ASTPGOInstrUseFile(
     "fprofile-instr-use", cl::ZeroOrMore, cl::value_desc("filename"),
     cl::desc("Use instrumentation data for profile-guided optimization"),
     cl::ValueRequired);
+
+/// Option for using sample-based PGO instrumentation
+cl::opt<std::string>
+    SamplePGOInstrUseFile("fprofile-sample-use", cl::Optional,
+                          cl::value_desc("filename"),
+                          cl::desc("Use instrumentation data for sample-based "
+                                   "profile guided optimizations"),
+                          cl::ValueRequired);
 
 cl::opt<int> fXRayInstructionThreshold(
     "fxray-instruction-threshold", cl::value_desc("value"),
@@ -119,6 +131,9 @@ void initializeInstrumentationOptionsFromCmdline(const llvm::Triple &triple) {
   } else if (!IRPGOInstrUseFile.empty()) {
     pgoMode = PGO_IRBasedUse;
     global.params.datafileInstrProf = fromPathString(IRPGOInstrUseFile).ptr;
+  } else if (!SamplePGOInstrUseFile.empty()) {
+    pgoMode = PGO_SampleBasedUse;
+    global.params.datafileInstrProf = fromPathString(SamplePGOInstrUseFile).ptr;
   }
 
   if (dmdFunctionTrace)
