@@ -1362,10 +1362,6 @@ else
     ///
     pragma(scanf)
     int sscanf(scope const char* s, scope const char* format, scope ...);
-
-//FIXME: enable for LDC > 1.31.0-beta1
-version(none)
-{
     ///
     pragma(printf)
     int vfprintf(FILE* stream, scope const char* format, va_list arg);
@@ -1384,8 +1380,6 @@ version(none)
     ///
     pragma(scanf)
     int vscanf(scope const char* format, va_list arg);
-}
-
     ///
     pragma(printf)
     int printf(scope const char* format, scope const ...);
