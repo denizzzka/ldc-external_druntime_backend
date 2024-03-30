@@ -3,7 +3,7 @@
  *
  * Specification: C11
  *
- * Copyright:   Copyright (C) 2021-2023 by The D Language Foundation, All Rights Reserved
+ * Copyright:   Copyright (C) 2021-2024 by The D Language Foundation, All Rights Reserved
  * Authors:     $(LINK2 https://www.digitalmars.com, Walter Bright)
  * License:     $(LINK2 https://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Source:      $(LINK2 https://github.com/dlang/dmd/blob/master/src/dmd/importc.d, _importc.d)
@@ -20,6 +20,7 @@ import dmd.dcast;
 import dmd.declaration;
 import dmd.dscope;
 import dmd.dsymbol;
+import dmd.dsymbolsem;
 import dmd.errors;
 import dmd.expression;
 import dmd.expressionsem;
@@ -242,16 +243,15 @@ Expression castCallAmbiguity(Expression e, Scope* sc)
 
             case EXP.call:
                 auto ce = (*pe).isCallExp();
-                auto ie = ce.e1.isIdentifierExp();
-                if (ie && ie.parens)
+                if (ce.e1.parens)
                 {
-                    ce.e1 = expressionSemantic(ie, sc);
+                    ce.e1 = expressionSemantic(ce.e1, sc);
                     if (ce.e1.op == EXP.type)
                     {
                         const numArgs = ce.arguments ? ce.arguments.length : 0;
                         if (numArgs >= 1)
                         {
-                            ie.parens = false;
+                            ce.e1.parens = false;
                             Expression arg;
                             foreach (a; (*ce.arguments)[])
                             {

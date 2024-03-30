@@ -117,9 +117,9 @@ include(GetLinuxDistribution)
 #
 
 # Version information
-set(LDC_VERSION "1.36.0") # May be overridden by git hash tag
+set(LDC_VERSION "1.37.0") # May be overridden by git hash tag
 set(DMDFE_MAJOR_VERSION   2)
-set(DMDFE_MINOR_VERSION   106)
+set(DMDFE_MINOR_VERSION   107)
 set(DMDFE_PATCH_VERSION   1)
 
 set(DMD_VERSION ${DMDFE_MAJOR_VERSION}.${DMDFE_MINOR_VERSION}.${DMDFE_PATCH_VERSION})
@@ -505,13 +505,13 @@ message(STATUS "-- Building LDC with integrated LLD linker (LDC_WITH_LLD): ${LDC
 
 message(STATUS "-- Building LDC with enabled assertions (LDC_ENABLE_ASSERTIONS): ${LDC_ENABLE_ASSERTIONS}")
 if(LDC_ENABLE_ASSERTIONS)
-    append("-UNDEBUG" EXTRA_CXXFLAGS)
+    append("-UNDEBUG" LDC_CXXFLAGS)
     # avoid MSVC warning D9025 about "-DNDEBUG ... -UNDEBUG"
     string(REGEX REPLACE "(^| )[/-]D *NDEBUG( |$)" "\\1-UNDEBUG\\2" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
     string(REGEX REPLACE "(^| )[/-]D *NDEBUG( |$)" "\\1-UNDEBUG\\2" CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL}")
     string(REGEX REPLACE "(^| )[/-]D *NDEBUG( |$)" "\\1-UNDEBUG\\2" CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO}")
 else()
-    append("-DNDEBUG" EXTRA_CXXFLAGS)
+    append("-DNDEBUG" LDC_CXXFLAGS)
 endif()
 
 #

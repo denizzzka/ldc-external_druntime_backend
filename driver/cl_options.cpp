@@ -179,7 +179,7 @@ static cl::opt<Diagnostic, true> warnings(
     cl::init(DIAGNOSTICoff));
 
 static cl::opt<bool, true> ignoreUnsupportedPragmas(
-    "ignore", cl::desc("Ignore unsupported pragmas"), cl::ZeroOrMore,
+    "ignore", cl::desc("Ignore unsupported pragmas (default)"), cl::ZeroOrMore,
     cl::location(global.params.ignoreUnsupportedPragmas));
 
 static cl::opt<CppStdRevision, true> cplusplus(
@@ -679,6 +679,10 @@ cl::opt<LTOKind> ltoMode(
         clEnumValN(LTO_Full, "full", "Merges all input into a single module"),
         clEnumValN(LTO_Thin, "thin",
                    "Parallel importing and codegen (faster than 'full')")));
+cl::opt<bool> ltoFatObjects(
+    "ffat-lto-objects", cl::ZeroOrMore,
+    cl::desc("Include both IR and object code in object file output; only "
+             "effective when compiling with -flto."));
 
 cl::opt<std::string>
     saveOptimizationRecord("fsave-optimization-record",

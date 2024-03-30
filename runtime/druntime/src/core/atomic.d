@@ -95,13 +95,6 @@ T atomicLoad(MemoryOrder ms = MemoryOrder.seq, T)(auto ref return scope const T 
         return cast(T) val;
     }
     else
-    static if (__traits(isFloating, T))
-    {
-        alias IntTy = IntForFloat!T;
-        IntTy r = core.internal.atomic.atomicLoad!ms(cast(IntTy*)&val);
-        return *cast(T*)&r;
-    }
-    else
         return core.internal.atomic.atomicLoad!ms(cast(T*)&val);
 }
 
@@ -164,12 +157,6 @@ void atomicStore(MemoryOrder ms = MemoryOrder.seq, T, V)(ref T val, V newval) pu
     version (Druntime_FakeAtomic)
     {
         val = arg;
-    }
-    else
-    static if (__traits(isFloating, T))
-    {
-        alias IntTy = IntForFloat!T;
-        core.internal.atomic.atomicStore!ms(cast(IntTy*)&val, *cast(IntTy*)&arg);
     }
     else
         core.internal.atomic.atomicStore!ms(&val, arg);
@@ -289,14 +276,7 @@ in (atomicPtrIsProperlyAligned(here), "Argument `here` is not properly aligned")
     // resolve implicit conversions
     T arg = exchangeWith;
 
-    static if (__traits(isFloating, T))
-    {
-        alias IntTy = IntForFloat!T;
-        IntTy r = core.internal.atomic.atomicExchange!ms(cast(IntTy*)here, *cast(IntTy*)&arg);
-        return *cast(shared(T)*)&r;
-    }
-    else
-        return core.internal.atomic.atomicExchange!ms(here, arg);
+    return core.internal.atomic.atomicExchange!ms(here, arg);
 }
 
 /// Ditto
@@ -368,14 +348,7 @@ template cas(MemoryOrder succ = MemoryOrder.seq, MemoryOrder fail = MemoryOrder.
         const T arg1 = ifThis;
         T arg2 = writeThis;
 
-        static if (__traits(isFloating, T))
-        {
-            alias IntTy = IntForFloat!T;
-            return atomicCompareExchangeStrongNoResult!(succ, fail)(
-                cast(IntTy*)here, *cast(IntTy*)&arg1, *cast(IntTy*)&arg2);
-        }
-        else
-            return atomicCompareExchangeStrongNoResult!(succ, fail)(here, arg1, arg2);
+        return atomicCompareExchangeStrongNoResult!(succ, fail)(here, arg1, arg2);
     }
 
     /// Compare-and-set for shared value type
@@ -418,14 +391,7 @@ template cas(MemoryOrder succ = MemoryOrder.seq, MemoryOrder fail = MemoryOrder.
         // resolve implicit conversions
         T arg1 = writeThis;
 
-        static if (__traits(isFloating, T))
-        {
-            alias IntTy = IntForFloat!T;
-            return atomicCompareExchangeStrong!(succ, fail)(
-                cast(IntTy*)here, cast(IntTy*)ifThis, *cast(IntTy*)&writeThis);
-        }
-        else
-            return atomicCompareExchangeStrong!(succ, fail)(here, ifThis, writeThis);
+        return atomicCompareExchangeStrong!(succ, fail)(here, ifThis, writeThis);
     }
 
     /// Compare and exchange for mixed-`shared`ness types

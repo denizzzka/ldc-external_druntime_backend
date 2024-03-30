@@ -3449,7 +3449,7 @@ Lmark:
         stopGC = true;
         while (atomicLoad(stoppedThreads) < startedThreads && !allThreadsDead)
         {
-            evStart.set();
+            evStart.setIfInitialized();
             evDone.wait(dur!"msecs"(1));
         }
 
@@ -3478,7 +3478,7 @@ Lmark:
         {
             evStart.wait();
             pullFromScanStack();
-            evDone.set();
+            evDone.setIfInitialized();
         }
         stoppedThreads.atomicOp!"+="(1);
     }
@@ -5000,8 +5000,8 @@ version (D_LP64) unittest
         // only run if the system has enough physical memory
         size_t sz = 2L^^32;
         //import core.stdc.stdio;
-        //printf("availphys = %lld", os_physical_mem());
-        if (os_physical_mem() > sz)
+        //printf("availphys = %lld", os_physical_mem(true));
+        if (os_physical_mem(true) > sz)
         {
             import core.memory;
             GC.collect();

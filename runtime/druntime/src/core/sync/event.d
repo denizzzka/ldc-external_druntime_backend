@@ -65,7 +65,7 @@ struct ProcessFile
             group.create(&doProcess);
 
         buffer = std.file.read(filename);
-        event.set();
+        event.setIfInitialized();
         group.joinAll();
         event.terminate();
     }
@@ -168,9 +168,13 @@ nothrow @nogc:
         }
     }
 
+    deprecated ("Use setIfInitialized() instead") void set()
+    {
+        setIfInitialized();
+    }
 
     /// Set the event to "signaled", so that waiting clients are resumed
-    void set()
+    void setIfInitialized()
     {
         version (Windows)
         {
@@ -343,7 +347,7 @@ unittest
     auto start = MonoTime.currTime;
     assert(numRunning == 0);
 
-    event.set();
+    event.setIfInitialized();
     group.joinAll();
 
     assert(numRunning == numThreads);
