@@ -104,6 +104,7 @@ LLConstantInt *DtoConstUlong(uint64_t i);
 LLConstantInt *DtoConstLong(int64_t i);
 LLConstantInt *DtoConstUint(unsigned i);
 LLConstantInt *DtoConstInt(int i);
+LLConstantInt *DtoConstUshort(uint16_t i);
 LLConstantInt *DtoConstUbyte(unsigned char i);
 LLConstant *DtoConstFP(Type *t, real_t value);
 
@@ -151,6 +152,7 @@ LLGlobalVariable *isaGlobalVar(LLValue *v);
 LLType *getI8Type();
 LLPointerType *getPtrToType(LLType *t);
 LLPointerType *getVoidPtrType();
+LLPointerType *getVoidPtrType(llvm::LLVMContext &C);
 llvm::ConstantPointerNull *getNullPtr(LLType *t);
 LLConstant *getNullValue(LLType *t);
 

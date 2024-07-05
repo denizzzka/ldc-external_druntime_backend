@@ -97,8 +97,7 @@ void cloneBlocks(const std::vector<llvm::BasicBlock *> &srcblocks,
     for (auto &II : *bb) {
       llvm::Instruction *Inst = &II;
       llvm::Instruction *newInst = nullptr;
-      if (funclet &&
-          !llvm::isa<llvm::DbgInfoIntrinsic>(Inst)) { // IntrinsicInst?
+      if (funclet && !llvm::isa<llvm::IntrinsicInst>(Inst)) {
         if (auto IInst = llvm::dyn_cast<llvm::InvokeInst>(Inst)) {
           auto invoke = llvm::InvokeInst::Create(
               IInst, llvm::OperandBundleDef("funclet", funclet));
@@ -185,9 +184,8 @@ llvm::GlobalVariable *getTypeDescriptor(IRState &irs, ClassDeclaration *cd) {
 
   // Declare and initialize the TypeDescriptor.
   llvm::Constant *Fields[] = {
-      classInfoPtr, // VFPtr
-      llvm::ConstantPointerNull::get(
-          LLType::getInt8PtrTy(gIR->context())), // Runtime data
+      classInfoPtr,                                     // VFPtr
+      llvm::ConstantPointerNull::get(getVoidPtrType()), // Runtime data
       llvm::ConstantDataArray::getString(gIR->context(), TypeNameString)};
   llvm::StructType *TypeDescriptorType =
       getTypeDescriptorType(irs, classInfoPtr, TypeNameString);

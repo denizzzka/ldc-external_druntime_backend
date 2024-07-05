@@ -84,7 +84,10 @@ private
     enum mutexClassInstanceSize = __traits(classInstanceSize, Mutex);
 
     alias swapContext = externDFunc!("core.thread.osthread.swapContext", void* function(void*) nothrow @nogc);
+}
 
+package
+{
     alias getStackBottom = externDFunc!("core.thread.osthread.getStackBottom", void* function() nothrow @nogc);
     alias getStackTop = externDFunc!("core.thread.osthread.getStackTop", void* function() nothrow @nogc);
 }
@@ -423,7 +426,7 @@ class ThreadBase
     // Initializes a thread object which has no associated executable function.
     // This is used for the main thread initialized in thread_init().
     //
-    package this(size_t sz = 0) @safe pure nothrow @nogc
+    public /*package*/ this(size_t sz = 0) @safe pure nothrow @nogc
     {
         m_sz = sz;
         m_curr = &m_main;
@@ -671,6 +674,12 @@ package(core.thread):
     // Global Thread List Operations
     ///////////////////////////////////////////////////////////////////////////
 
+    package static void incrementAboutToStart(ThreadBase t) nothrow @nogc
+    {
+        ++nAboutToStart;
+        pAboutToStart = cast(ThreadBase*)realloc(pAboutToStart, ThreadBase.sizeof * nAboutToStart);
+        pAboutToStart[nAboutToStart - 1] = t;
+    }
 
     //
     // Add a thread to the global thread list.

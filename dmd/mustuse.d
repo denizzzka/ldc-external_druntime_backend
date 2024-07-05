@@ -31,6 +31,7 @@ import dmd.location;
 bool checkMustUse(Expression e, Scope* sc)
 {
     import dmd.id : Id;
+    import dmd.typesem : toDsymbol;
 
     assert(e.type);
     if (auto sym = e.type.toDsymbol(sc))
@@ -201,7 +202,7 @@ private bool isIncrementOrDecrement(Expression e)
  */
 private bool hasMustUseAttribute(Dsymbol sym, Scope* sc)
 {
-    import dmd.attrib : foreachUda;
+    import dmd.attribsem : foreachUda;
 
     bool result = false;
 

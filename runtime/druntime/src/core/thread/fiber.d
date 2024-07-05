@@ -11,7 +11,7 @@
 
 module core.thread.fiber;
 
-import core.thread.osthread;
+import core.thread.threadbase;
 import core.thread.threadgroup;
 import core.thread.types;
 import core.thread.context;
@@ -127,6 +127,14 @@ private
             version = AsmExternal;
         }
     }
+    else version (MIPS_N64)
+    {
+        version (Posix)
+        {
+            version = AsmMIPS_N64_Posix;
+            version = AsmExternal;
+        }
+    }
     else version (AArch64)
     {
         version (Posix)
@@ -202,8 +210,8 @@ private
             informSanitizerOfFinishSwitchFiber(obj.__fake_stack, &obj.__from_stack_bottom, &obj.__from_stack_size);
         }
 
-        assert( Thread.getThis().m_curr is obj.m_ctxt );
-        atomicStore!(MemoryOrder.raw)(*cast(shared)&Thread.getThis().m_lock, false);
+        assert( ThreadBase.getThis().m_curr is obj.m_ctxt );
+        atomicStore!(MemoryOrder.raw)(*cast(shared)&ThreadBase.getThis().m_lock, false);
         obj.m_ctxt.tstack = obj.m_ctxt.bstack;
         obj.m_state = Fiber.State.EXEC;
 
@@ -228,6 +236,8 @@ private
   {
       extern (C) void fiber_switchContext( void** oldp, void* newp ) nothrow @nogc;
       version (AArch64)
+          extern (C) void fiber_trampoline() nothrow;
+      version (LoongArch64)
           extern (C) void fiber_trampoline() nothrow;
   }
   else version (LDC_Windows)
@@ -557,6 +567,8 @@ version (LDC)
     }
 
     version (Android) version = CheckFiberMigration;
+
+    version (AArch64) version = CheckFiberMigration;
 
     // Fiber migration across threads is (probably) not possible with ASan fakestack enabled (different parts of the stack
     // will contain fakestack pointers that were created on different threads...)
@@ -1132,6 +1144,16 @@ class Fiber
      */
     static Fiber getThis() @safe nothrow @nogc
     {
+        // LDC NOTE:
+        // Currently, it is not safe to migrate fibers across threads when they
+        // use TLS at all, as LLVM might cache the TLS address lookup across a
+        // context switch (see https://github.com/ldc-developers/ldc/issues/666).
+        // Preventing inlining of this function, as well as switch{In,Out}
+        // below, enables users to do this at least as long as they are very
+        // careful about accessing TLS data themselves (such as in the shared
+        // fiber unittest below, which tends to sporadically crash with enabled
+        // optimizations if this prevent-inlining workaround is removed).
+        version (LDC) pragma(inline, false);
         return sm_this;
     }
 
@@ -1181,7 +1203,7 @@ private:
     State               m_state;
 
     // Set first time switchIn called to indicate this Fiber's Thread
-    Thread              m_curThread;
+    ThreadBase          m_curThread;
 
     version (SjLj_Exceptions)
     {
@@ -1307,6 +1329,8 @@ private:
             }
             else
             {
+                import core.stdc.stdlib : malloc;
+
                 m_pmem = malloc( sz );
             }
 
@@ -1343,7 +1367,6 @@ private:
             }
         }
 
-        import core.thread.threadbase; //FIXME: replace in all module
         ThreadBase.add( m_ctxt );
     }
 
@@ -1357,10 +1380,8 @@ private:
     {
         // NOTE: m_ctxt is guaranteed to be alive because it is held in the
         //       global context list.
-        Thread.slock.lock_nothrow();
-        scope(exit) Thread.slock.unlock_nothrow();
-
-        import core.thread.threadbase; //FIXME: replace in all module
+        ThreadBase.slock.lock_nothrow();
+        scope(exit) ThreadBase.slock.unlock_nothrow();
         ThreadBase.remove( m_ctxt );
 
         version (Windows)
@@ -1788,7 +1809,7 @@ private:
             // At present, it is not safe to migrate fibers between threads, but if that
             // changes, then updating the value of R13 will also need to be handled.
             version (PPC64)
-              *cast(size_t*)(pstack + wsize) = cast(size_t) Thread.getThis().m_addr;
+              *cast(size_t*)(pstack + wsize) = cast(size_t) ThreadBase.getThis().m_addr;
             assert( (cast(size_t) pstack & 0x0f) == 0 );
         }
         else version (AsmMIPS_O32_Posix)
@@ -1832,12 +1853,49 @@ private:
             pstack -= ABOVE;
             *cast(size_t*)(pstack - SZ_RA) = cast(size_t)&fiber_entryPoint;
         }
+        else version (AsmMIPS_N64_Posix)
+        {
+            version (StackGrowsDown) {}
+            else static assert(0);
+
+            /* We keep the FP registers and the return address below
+             * the stack pointer, so they don't get scanned by the
+             * GC. The last frame before swapping the stack pointer is
+             * organized like the following.
+             *
+             *     |-----------|<= frame pointer
+             *     |  $fp/$gp  |
+             *     |   $s0-7   |
+             *     |-----------|<= stack pointer
+             *     |    $ra    |
+             *     |  $f24-31  |
+             *     |-----------|
+             *
+             */
+            enum SZ_GP = 10 * size_t.sizeof; // $fp + $gp + $s0-7
+            enum SZ_RA = size_t.sizeof;      // $ra
+            version (MIPS_HardFloat)
+            {
+                enum SZ_FP = 8 * double.sizeof; // $f24-31
+            }
+            else
+            {
+                enum SZ_FP = 0;
+            }
+
+            enum BELOW = SZ_FP + SZ_RA;
+            enum ABOVE = SZ_GP;
+            enum SZ = BELOW + ABOVE;
+
+            (cast(ubyte*)pstack - SZ)[0 .. SZ] = 0;
+            pstack -= ABOVE;
+            *cast(size_t*)(pstack - SZ_RA) = cast(size_t)&fiber_entryPoint;
+        }
         else version (AsmLoongArch64_Posix)
         {
             // Like others, FP registers and return address ($r1) are kept
             // below the saved stack top (tstack) to hide from GC scanning.
             // fiber_switchContext expects newp sp to look like this:
-            //   10: $r21 (reserved)
             //    9: $r22 (frame pointer)
             //    8: $r23
             //   ...
@@ -1853,8 +1911,8 @@ private:
 
             // Only need to set return address ($r1).  Everything else is fine
             // zero initialized.
-            pstack -= size_t.sizeof * 11;    // skip past space reserved for $r21-$r31
-            push (cast(size_t) &fiber_entryPoint);
+            pstack -= size_t.sizeof * 10;    // skip past space reserved for $r22-$r31
+            push(cast(size_t) &fiber_trampoline); // see threadasm.S for docs
             pstack += size_t.sizeof;         // adjust sp (newp) above lr
         }
         else version (AsmAArch64_Posix)
@@ -1969,9 +2027,10 @@ private:
     //
     final void switchIn() nothrow @nogc
     {
+        // see note in getThis()
         version (LDC) pragma(inline, false);
 
-        Thread  tobj = Thread.getThis();
+        ThreadBase  tobj = ThreadBase.getThis();
         void**  oldp = &tobj.m_curr.tstack;
         void*   newp = m_ctxt.tstack;
 
@@ -2062,9 +2121,10 @@ private:
     //
     final void switchOut() nothrow @nogc
     {
+        // see note in getThis()
         version (LDC) pragma(inline, false);
 
-        Thread  tobj = m_curThread;
+        ThreadBase  tobj = m_curThread;
         void**  oldp = &m_ctxt.tstack;
         void*   newp = tobj.m_curr.within.tstack;
 
@@ -2242,6 +2302,8 @@ unittest
 version(ThreadsDisabled) {} else
 unittest
 {
+    import core.thread.osthread : Thread;
+
     static int tls;
 
     static yield_noinline()
@@ -2339,7 +2401,7 @@ unittest
                         fibs[idx].call();
                         cont |= fibs[idx].state != Fiber.State.TERM;
                     }
-                    locks[idx] = false;
+                    locks[idx].atomicStore(false);
                 }
                 else
                 {
@@ -2522,6 +2584,7 @@ version(ThreadsDisabled) {} else
 unittest
 {
     import core.memory;
+    import core.thread.osthread : Thread;
     import core.time : dur;
 
     static void unreferencedThreadObject()

@@ -478,8 +478,12 @@ extern (C++) void verrorReport(const ref Loc loc, const(char)* format, va_list a
         {
             if (!global.gag)
             {
-                info.headerColor = Classification.deprecation;
-                verrorPrint(format, ap, info);
+                global.deprecations++;
+                if (global.params.v.errorLimit == 0 || global.deprecations <= global.params.v.errorLimit)
+                {
+                    info.headerColor = Classification.deprecation;
+                    verrorPrint(format, ap, info);
+                }
             }
             else
             {
@@ -661,9 +665,9 @@ private void verrorPrint(const(char)* format, va_list ap, ref ErrorInfo info)
     {
         import dmd.root.filename : FileName;
         const fileName = FileName(loc.filename.toDString);
-        if (auto text = global.fileManager.lookup(fileName))
+        if (auto text = global.fileManager.getFileContents(fileName))
         {
-            auto range = global.fileManager.splitLines(cast(const(char[])) text);
+            auto range = dmd.root.string.splitLines(cast(const(char[])) text);
             size_t linnum;
             foreach (line; range)
             {

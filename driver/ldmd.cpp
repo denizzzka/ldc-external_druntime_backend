@@ -197,15 +197,19 @@ Where:\n\
   -Hd=<directory>   write 'header' file to directory\n\
   -Hf=<filename>    write 'header' file to filename\n\
   -HC[=[silent|verbose]]\n\
-                    generate C++ 'header' file\n"
+                    write C++ 'header' equivalent to stdout\n"
 #if 0
 "  -HC=[?|h|help]    list available modes for C++ 'header' file generation\n"
 #endif
 "  -HCd=<directory>  write C++ 'header' file to directory\n\
-  -HCf=<filename>   write C++ 'header' file to filename\n\
+  -HCf=<filename>   write C++ 'header' file to filename instead of stdout\n\
   --help            print help and exit\n\
   -I=<directory>    look for imports also in directory\n\
   -i[=<pattern>]    include imported modules in the compilation\n\
+  -identifiers=<table>\n\
+                    specify the non-ASCII tables for D identifiers\n\
+  -identifiers-importc=<table>\n\
+                    specify the non-ASCII tables for ImportC identifiers\n\
   -ignore           deprecated flag, unsupported pragmas are always ignored now\n\
   -inline           do function inlining\n\
   -J=<directory>    look for string imports also in directory\n\
@@ -636,7 +640,9 @@ void translateArgs(const llvm::SmallVectorImpl<const char *> &ldmdArgs,
         ldcArgs.push_back("-enable-inlining");
         ldcArgs.push_back("-Hkeep-all-bodies");
       }
-      /* -dip25
+      /* -identifiers-importc
+       * -identifiers
+       * -dip25
        * -dip1000
        * -dip1008
        */
@@ -752,13 +758,7 @@ void translateArgs(const llvm::SmallVectorImpl<const char *> &ldmdArgs,
       }
     } else {
       const auto ext = ls::path::extension(p);
-      if (
-#if LDC_LLVM_VER >= 1300
-        ext.equals_insensitive(".exe")
-#else
-        ext.equals_lower(".exe")
-#endif
-          ) {
+      if (ext.equals_insensitive(".exe")) {
         // should be for Windows targets only
         ldcArgs.push_back(concat("-of=", p));
         continue;

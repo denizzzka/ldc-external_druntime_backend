@@ -40,6 +40,8 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include <algorithm>
 
+using namespace dmd;
+
 ////////////////////////////////////////////////////////////////////////////////
 
 static llvm::cl::opt<bool> nogc(
@@ -221,7 +223,7 @@ public:
     }
 
     for (int i = 0; i < numIndirections; ++i)
-      ty = ty->pointerTo();
+      ty = ::dmd::pointerTo(ty);
 
     return ty;
   }
@@ -271,11 +273,7 @@ struct LazyFunctionDeclarer {
       // FIXME: Move to better place (abi-x86-64.cpp?)
       // NOTE: There are several occurances if this line.
       if (global.params.targetTriple->getArch() == llvm::Triple::x86_64) {
-#if LDC_LLVM_VER >= 1500
         fn->setUWTableKind(llvm::UWTableKind::Default);
-#else
-        fn->addFnAttr(LLAttribute::UWTable);
-#endif
       }
 
       fn->setCallingConv(gABI->callingConv(dty, false));
@@ -357,6 +355,8 @@ llvm::Function *getRuntimeFunction(const Loc &loc, llvm::Module &target,
 //                            const char *funcname);
 // Musl:    void __assert_fail(const char *assertion, const char *filename, int line_num,
 //                             const char *funcname);
+// Glibc:   void __assert_fail(const char *assertion, const char *filename, int line_num,
+//                             const char *funcname);
 // uClibc:  void __assert(const char *assertion, const char *filename, int linenumber,
 //                        const char *function);
 // newlib:  void __assert_func(const char *file, int line, const char *func,
@@ -371,7 +371,7 @@ static const char *getCAssertFunctionName() {
     return "_assert";
   } else if (triple.isOSSolaris()) {
     return "__assert_c99";
-  } else if (triple.isMusl()) {
+  } else if (triple.isMusl() || triple.isGNUEnvironment()) {
     return "__assert_fail";
   } else if (global.params.isNewlibEnvironment) {
     return "__assert_func";
@@ -385,7 +385,7 @@ static std::vector<PotentiallyLazyType> getCAssertFunctionParamTypes() {
   const auto uint = Type::tuns32;
 
   if (triple.isOSDarwin() || triple.isOSSolaris() || triple.isMusl() ||
-      global.params.isUClibcEnvironment) {
+      global.params.isUClibcEnvironment || triple.isGNUEnvironment()) {
     return {voidPtr, voidPtr, uint, voidPtr};
   }
   if (triple.getEnvironment() == llvm::Triple::Android) {
@@ -490,11 +490,11 @@ static void buildRuntimeModule() {
   Type *dcharTy = Type::tdchar;
 
   Type *voidPtrTy = Type::tvoidptr;
-  Type *voidArrayTy = Type::tvoid->arrayOf();
-  Type *voidArrayPtrTy = voidArrayTy->pointerTo();
-  Type *stringTy = Type::tchar->arrayOf();
-  Type *wstringTy = Type::twchar->arrayOf();
-  Type *dstringTy = Type::tdchar->arrayOf();
+  Type *voidArrayTy = arrayOf(Type::tvoid);
+  Type *voidArrayPtrTy = pointerTo(voidArrayTy);
+  Type *stringTy = arrayOf(Type::tchar);
+  Type *wstringTy = arrayOf(Type::twchar);
+  Type *dstringTy = arrayOf(Type::tdchar);
 
   // LDC's AA type is rt.aaA.Impl*; use void* for the prototypes
   Type *aaTy = voidPtrTy;
@@ -620,7 +620,7 @@ static void buildRuntimeModule() {
   // void _d_delmemory(void** p)
   // void _d_delinterface(void** p)
   createFwdDecl(LINK::c, voidTy, {"_d_delmemory", "_d_delinterface"},
-                {voidPtrTy->pointerTo()});
+                {pointerTo(voidPtrTy)});
 
   // void _d_callfinalizer(void* p)
   createFwdDecl(LINK::c, voidTy, {"_d_callfinalizer"}, {voidPtrTy});
@@ -630,7 +630,7 @@ static void buildRuntimeModule() {
 
   // void _d_delstruct(void** p, TypeInfo_Struct inf)
   createFwdDecl(LINK::c, voidTy, {"_d_delstruct"},
-                {voidPtrTy->pointerTo(), structTypeInfoTy});
+                {pointerTo(voidPtrTy), structTypeInfoTy});
 
   //////////////////////////////////////////////////////////////////////////////
   //////////////////////////////////////////////////////////////////////////////
@@ -717,7 +717,7 @@ static void buildRuntimeModule() {
   // void* _aaGetY(AA* aa, const TypeInfo aati, in size_t valuesize,
   //               in void* pkey)
   createFwdDecl(LINK::c, voidPtrTy, {"_aaGetY"},
-                {aaTy->pointerTo(), aaTypeInfoTy, sizeTy, voidPtrTy},
+                {pointerTo(aaTy), aaTypeInfoTy, sizeTy, voidPtrTy},
                 {0, STCconst, STCin, STCin}, Attr_1_4_NoCapture);
 
   // inout(void)* _aaInX(inout AA aa, in TypeInfo keyti, in void* pkey)
@@ -821,7 +821,7 @@ static void buildRuntimeModule() {
   //                                    uint[] data, ubyte minPercent)
   if (global.params.cov) {
     createFwdDecl(LINK::c, voidTy, {"_d_cover_register2"},
-                  {stringTy, sizeTy->arrayOf(), uintTy->arrayOf(), ubyteTy});
+                  {stringTy, arrayOf(sizeTy), arrayOf(uintTy), ubyteTy});
   }
 
   if (target.objc.supported) {
@@ -888,7 +888,7 @@ static void emitInstrumentationFn(const char *name) {
   // Grab the address of the calling function
   auto *caller =
       gIR->ir->CreateCall(GET_INTRINSIC_DECL(returnaddress), DtoConstInt(0));
-  auto callee = DtoBitCast(gIR->topfunc(), getVoidPtrType());
+  auto callee = gIR->topfunc();
 
   gIR->ir->CreateCall(fn, {callee, caller});
 }

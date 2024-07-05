@@ -9,7 +9,6 @@
 #pragma once
 
 #include "dsystem.h"
-#include "object.h"
 #include "rmem.h"
 
 #if IN_LLVM
@@ -34,7 +33,7 @@ struct Array
   public:
     Array()
     {
-        data.ptr = NULL;
+        data.ptr = nullptr;
         length = 0;
         data.length = 0;
     }
@@ -51,7 +50,7 @@ struct Array
         d_size_t len = 2;
         for (d_size_t u = 0; u < length; u++)
         {
-            buf[u] = ((RootObject *)data.ptr[u])->toChars();
+            buf[u] = ((TYPE)data.ptr[u])->toChars();
             len += strlen(buf[u]) + 1;
         }
         char *str = (char *)mem.xmalloc(len);
@@ -94,7 +93,7 @@ struct Array
                 if (nentries <= SMALLARRAYCAP)
                 {
                     data.length = SMALLARRAYCAP;
-                    data.ptr = SMALLARRAYCAP ? &smallarray[0] : NULL;
+                    data.ptr = SMALLARRAYCAP ? &smallarray[0] : nullptr;
                 }
                 else
                 {

@@ -26,6 +26,7 @@ import dmd.dsymbol;
 import dmd.dsymbolsem;
 import dmd.errors;
 import dmd.func;
+import dmd.funcsem;
 import dmd.id;
 import dmd.identifier;
 import dmd.location;
@@ -33,6 +34,7 @@ import dmd.mtype;
 import dmd.objc;
 import dmd.root.rmem;
 import dmd.target;
+import dmd.typesem;
 import dmd.visitor;
 
 /***********************************************************
@@ -123,6 +125,7 @@ extern (C++) struct BaseClass
     }
 }
 
+// These must match the values in druntime/src/object.d
 enum ClassFlags : uint
 {
     none          = 0x0,
@@ -135,6 +138,7 @@ enum ClassFlags : uint
     isAbstract    = 0x40,
     isCPPclass    = 0x80,
     hasDtor       = 0x100,
+    hasNameSig    = 0x200,
 }
 
 /***********************************************************

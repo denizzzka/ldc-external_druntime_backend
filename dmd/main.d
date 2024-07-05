@@ -55,6 +55,7 @@ import dmd.location;
 import dmd.mars;
 import dmd.mtype;
 import dmd.objc;
+// IN_LLVM import dmd.root.env;
 import dmd.root.file;
 import dmd.root.filename;
 import dmd.root.man;
@@ -97,7 +98,9 @@ version (IN_LLVM) {} else {
  *
  * Returns:
  * Return code of the application
- */ extern (C) int main(int argc, char** argv) {
+ */
+extern (C) int main(int argc, char** argv)
+{
     bool lowmem = false;
     foreach (i; 1 .. argc)
     {
@@ -121,7 +124,9 @@ version (IN_LLVM) {} else {
  *
  * Returns:
  * Return code of the application
- */ extern (C) int _Dmain(char[][]) {
+ */
+extern (C) int _Dmain(char[][])
+{
     // possibly install memory error handler
     version (DigitalMars)
     {
@@ -172,19 +177,77 @@ private:
  * Returns:
  *   Application return code
  */
-version (IN_LLVM) {} else
-private int tryMain(size_t argc, const(char)** argv, ref Param params)
+// LDC: changed from `private int tryMain(size_t argc, const(char)** argv, ref Param params)`
+extern (C++) int mars_tryMain(ref Param params, ref Strings files)
+{
+    import dmd.common.charactertables;
+
+version (IN_LLVM)
+{
+    Strings libmodules;
+}
+else
 {
     Strings files;
     Strings libmodules;
     global._init();
+    target.setTargetBuildDefaults();
 
     if (parseCommandlineAndConfig(argc, argv, params, files))
         return EXIT_FAILURE;
+}
 
     global.compileEnv.previewIn        = global.params.previewIn;
     global.compileEnv.ddocOutput       = global.params.ddoc.doOutput;
 
+    final switch(global.params.cIdentifierTable)
+    {
+        case CLIIdentifierTable.C99:
+            global.compileEnv.cCharLookupTable = IdentifierCharLookup.forTable(IdentifierTable.C99);
+            break;
+
+        case CLIIdentifierTable.C11:
+        case CLIIdentifierTable.default_:
+            // ImportC is defined against C11, not C23.
+            // If it was C23 this needs to be changed to UAX31 instead.
+            global.compileEnv.cCharLookupTable = IdentifierCharLookup.forTable(IdentifierTable.C11);
+            break;
+
+        case CLIIdentifierTable.UAX31:
+            global.compileEnv.cCharLookupTable = IdentifierCharLookup.forTable(IdentifierTable.UAX31);
+            break;
+
+        case CLIIdentifierTable.All:
+            global.compileEnv.cCharLookupTable = IdentifierCharLookup.forTable(IdentifierTable.LR);
+            break;
+    }
+
+    final switch(global.params.dIdentifierTable)
+    {
+        case CLIIdentifierTable.C99:
+            global.compileEnv.dCharLookupTable = IdentifierCharLookup.forTable(IdentifierTable.C99);
+            break;
+
+        case CLIIdentifierTable.C11:
+            global.compileEnv.dCharLookupTable = IdentifierCharLookup.forTable(IdentifierTable.C11);
+            break;
+
+        case CLIIdentifierTable.UAX31:
+            global.compileEnv.dCharLookupTable = IdentifierCharLookup.forTable(IdentifierTable.UAX31);
+            break;
+
+        case CLIIdentifierTable.All:
+        case CLIIdentifierTable.default_:
+            // @@@DEPRECATED_2.119@@@
+            // Change the default to UAX31,
+            //  this is a breaking change as C99 (what D used for ~23 years),
+            //  has characters that are not in UAX31.
+            global.compileEnv.dCharLookupTable = IdentifierCharLookup.forTable(IdentifierTable.LR);
+            break;
+    }
+
+version (IN_LLVM) {} else
+{
     if (params.help.usage)
     {
         usage();
@@ -196,12 +259,8 @@ private int tryMain(size_t argc, const(char)** argv, ref Param params)
         logo();
         return EXIT_SUCCESS;
     }
-
-    return mars_mainBody(params, files, libmodules);
 }
 
-extern (C++) int mars_mainBody(ref Param params, ref Strings files, ref Strings libmodules)
-{
     /*
     Prints a supplied usage text to the console and
     returns the exit code for the help usage page.
@@ -222,6 +281,18 @@ extern (C++) int mars_mainBody(ref Param params, ref Strings files, ref Strings 
     {
         error(Loc.initial, "warnings are treated as errors");
         errorSupplemental(Loc.initial, "Use -wi if you wish to treat warnings only as informational.");
+    }
+
+    // In case deprecation messages were omitted, inform the user about it
+    static void mentionOmittedDeprecations()
+    {
+        if (global.params.v.errorLimit != 0 &&
+            global.deprecations > global.params.v.errorLimit)
+        {
+            const omitted = global.deprecations - global.params.v.errorLimit;
+            message(Loc.initial, "%d deprecation warning%s omitted, use `-verrors=0` to show all",
+                omitted, omitted == 1 ? "".ptr : "s".ptr);
+        }
     }
 
     /*
@@ -376,23 +447,14 @@ else
 
     // Build import search path
 
-    static Strings* buildPath(Strings* imppath)
+    static void buildPath(ref Strings imppath, ref Strings result)
     {
-        Strings* result = null;
-        if (imppath)
+        Strings array;
+        foreach (const path; imppath)
         {
-            foreach (const path; *imppath)
-            {
-                Strings* a = FileName.splitPath(path);
-                if (a)
-                {
-                    if (!result)
-                        result = new Strings();
-                    result.append(a);
-                }
-            }
+            FileName.appendSplitPath(path, array);
         }
-        return result;
+        result.append(&array);
     }
 
     if (params.mixinOut.doOutput)
@@ -401,8 +463,8 @@ else
         atexit(&flushMixins); // see comment for flushMixins
     }
     scope(exit) flushMixins();
-    global.path = buildPath(params.imppath);
-    global.filePath = buildPath(params.fileImppath);
+    buildPath(params.imppath, global.path);
+    buildPath(params.fileImppath, global.filePath);
 
     // Create Modules
     Modules modules = createModules(files, libmodules, target);
@@ -422,11 +484,10 @@ else
     {
         foreach (file; ddocfiles)
         {
-            auto buffer = readFile(loc, file.toDString());
+            if (readFile(loc, file.toDString(), ddocbuf))
+                fatal();
             // BUG: convert file contents to UTF-8 before use
-            const data = buffer.data;
-            //printf("file: '%.*s'\n", cast(int)data.length, data.ptr);
-            ddocbuf.write(data);
+            //printf("file: '%.*s'\n", cast(int)buffer.data.length, buffer.data.ptr);
         }
         ddocbufIsRead = true;
     }
@@ -646,6 +707,9 @@ else
     if (global.warnings)
         errorOnWarning();
 
+    if (global.params.useDeprecated == DiagnosticReporting.inform)
+        mentionOmittedDeprecations();
+
     // Do not attempt to generate output files if errors or warnings occurred
     if (global.errors || global.warnings)
         removeHdrFilesAndFail(params, modules);
@@ -674,7 +738,7 @@ version (IN_LLVM)
     }
 
     printCtfePerformanceStats();
-    printTemplateStats();
+    printTemplateStats(global.params.v.templatesListInstances, global.errorSink);
 
     // Generate output files
     if (params.json.doOutput)
@@ -793,22 +857,24 @@ version (IN_LLVM)
 else // !IN_LLVM
 {
         if (driverParams.link)
-            status = runLINK();
+            status = runLINK(global.params.v.verbose, global.errorSink);
 }
         if (params.run)
         {
             if (!status)
             {
-                status = runProgram();
-                /* Delete .obj files and .exe file
-                 */
 version (IN_LLVM)
 {
+                status = runProgram();
                 // object files already deleted above
                 deleteExeFile();
 }
 else
 {
+                restoreEnvVars();
+                status = runProgram(global.params.exefile, global.params.runargs[], global.params.v.verbose, global.errorSink);
+                /* Delete .obj files and .exe file
+                 */
                 foreach (m; modules)
                 {
                     m.deleteObjFile();
@@ -842,7 +908,7 @@ else
  *   argv = Array of string arguments passed via command line
  *   params = parameters from argv
  *   files = files from argv
- * Returns: true on faiure
+ * Returns: true on failure
  */
 version (IN_LLVM) {} else
 bool parseCommandlineAndConfig(size_t argc, const(char)** argv, ref Param params, ref Strings files)
@@ -890,8 +956,10 @@ bool parseCommandlineAndConfig(size_t argc, const(char)** argv, ref Param params
         global.inifilename = findConfFile(params.argv0, iniName);
     }
     // Read the configuration file
-    const iniReadResult = File.read(global.inifilename);
-    const inifileBuffer = iniReadResult.buffer.data;
+    OutBuffer inifileBuffer;
+    File.read(global.inifilename, inifileBuffer);
+    inifileBuffer.writeByte(0);         // ensure sentinel
+
     /* Need path of configuration file, for use in expanding @P macro
      */
     const(char)[] inifilepath = FileName.path(global.inifilename);
@@ -902,7 +970,8 @@ bool parseCommandlineAndConfig(size_t argc, const(char)** argv, ref Param params
      * pick up any DFLAGS settings.
      */
     sections.push("Environment");
-    parseConfFile(environment, global.inifilename, inifilepath, inifileBuffer, &sections);
+    if (parseConfFile(environment, global.inifilename, inifilepath, cast(ubyte[])inifileBuffer[], &sections))
+        return true;
 
     const(char)[] arch = target.isX86_64 ? "64" : "32"; // use default
     arch = parse_arch_arg(&arguments, arch);
@@ -925,7 +994,8 @@ bool parseCommandlineAndConfig(size_t argc, const(char)** argv, ref Param params
     char[80] envsection = void;
     snprintf(envsection.ptr, envsection.length, "Environment%.*s", cast(int) arch.length, arch.ptr);
     sections.push(envsection.ptr);
-    parseConfFile(environment, global.inifilename, inifilepath, inifileBuffer, &sections);
+    if (parseConfFile(environment, global.inifilename, inifilepath, cast(ubyte[])inifileBuffer[], &sections))
+        return true;
     getenv_setargv(readFromEnv(environment, "DFLAGS"), &arguments);
     updateRealEnvironment(environment);
     environment.reset(1); // don't need environment cache any more

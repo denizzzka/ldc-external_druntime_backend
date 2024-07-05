@@ -46,6 +46,8 @@
 #include <string>
 #include <utility>
 
+using namespace dmd;
+
 namespace {
 struct RegCount {
   char int_regs, sse_regs;
@@ -132,11 +134,7 @@ struct ImplicitByvalRewrite : ABIRewrite {
 
   void applyTo(IrFuncTyArg &arg, LLType *finalLType = nullptr) override {
     ABIRewrite::applyTo(arg, finalLType);
-#if LDC_LLVM_VER >= 1200
     arg.attrs.addByValAttr(DtoType(arg.type));
-#else
-    arg.attrs.addAttribute(LLAttribute::ByVal);
-#endif
     if (auto alignment = DtoAlignment(arg.type))
       arg.attrs.addAlignmentAttr(alignment);
   }
@@ -354,27 +352,25 @@ LLValue *X86_64TargetABI::prepareVaStart(DLValue *ap) {
   // invoking va_start, we first need to allocate the actual __va_list_tag struct
   // and set `ap` to its address.
   LLValue *valistmem = DtoRawAlloca(getValistType(), 0, "__va_list_mem");
-  DtoStore(valistmem,
-           DtoBitCast(DtoLVal(ap), getPtrToType(valistmem->getType())));
-  // Pass a i8* pointer to the actual struct to LLVM's va_start intrinsic.
-  return DtoBitCast(valistmem, getVoidPtrType());
+  DtoStore(valistmem, DtoLVal(ap));
+  // Pass an opaque pointer to the actual struct to LLVM's va_start intrinsic.
+  return valistmem;
 }
 
 void X86_64TargetABI::vaCopy(DLValue *dest, DValue *src) {
   // Analog to va_start, we first need to allocate a new __va_list_tag struct on
   // the stack and set `dest` to its address.
   LLValue *valistmem = DtoRawAlloca(getValistType(), 0, "__va_list_mem");
-  DtoStore(valistmem,
-           DtoBitCast(DtoLVal(dest), getPtrToType(valistmem->getType())));
+  DtoStore(valistmem, DtoLVal(dest));
   // Then fill the new struct with a bitcopy of the source struct.
   // `src` is a __va_list_tag* pointer to the source struct.
   DtoMemCpy(getValistType(), valistmem, DtoRVal(src));
 }
 
 LLValue *X86_64TargetABI::prepareVaArg(DLValue *ap) {
-  // Pass a i8* pointer to the actual __va_list_tag struct to LLVM's va_arg
+  // Pass an opaque pointer to the actual __va_list_tag struct to LLVM's va_arg
   // intrinsic.
-  return DtoBitCast(DtoRVal(ap), getVoidPtrType());
+  return DtoRVal(ap);
 }
 
 Type *X86_64TargetABI::vaListType() {
@@ -382,8 +378,8 @@ Type *X86_64TargetABI::vaListType() {
   // using TypeIdentifier here is a bit wonky but works, as long as the name
   // is actually available in the scope (this is what DMD does, so if a better
   // solution is found there, this should be adapted).
-  return TypeIdentifier::create(Loc(), Identifier::idPool("__va_list_tag"))
-      ->pointerTo();
+  return pointerTo(
+      TypeIdentifier::create(Loc(), Identifier::idPool("__va_list_tag")));
 }
 
 const char *X86_64TargetABI::objcMsgSendFunc(Type *ret,

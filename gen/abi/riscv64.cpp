@@ -19,6 +19,8 @@
 #include "gen/llvmhelpers.h"
 #include "gen/tollvm.h"
 
+using namespace dmd;
+
 namespace {
 struct Integer2Rewrite : BaseBitcastABIRewrite {
   LLType *type(Type *t) override {
@@ -57,15 +59,15 @@ FlattenedFields visitStructFields(Type *ty, unsigned baseOffset) {
   }
   switch (ty->toBasetype()->ty) {
   case TY::Tcomplex32: // treat it as {float32, float32}
-    result.fields[0].ty = Type::tfloat32->pointerTo();
-    result.fields[1].ty = Type::tfloat32->pointerTo();
+    result.fields[0].ty = pointerTo(Type::tfloat32);
+    result.fields[1].ty = pointerTo(Type::tfloat32);
     result.fields[0].offset = baseOffset;
     result.fields[1].offset = baseOffset + 4;
     result.length = 2;
     break;
   case TY::Tcomplex64: // treat it as {float64, float64}
-    result.fields[0].ty = Type::tfloat64->pointerTo();
-    result.fields[1].ty = Type::tfloat64->pointerTo();
+    result.fields[0].ty = pointerTo(Type::tfloat64);
+    result.fields[1].ty = pointerTo(Type::tfloat64);
     result.fields[0].offset = baseOffset;
     result.fields[1].offset = baseOffset + 8;
     result.length = 2;
@@ -108,8 +110,7 @@ struct HardfloatRewrite : ABIRewrite {
         DtoRawAlloca(asType, alignment, ".HardfloatRewrite_arg_storage");
     for (unsigned i = 0; i < (unsigned)flat.length; ++i) {
       DtoMemCpy(DtoGEP(asType, buffer, 0, i),
-                DtoGEP1(getI8Type(), DtoBitCast(address, getVoidPtrType()),
-                        flat.fields[i].offset),
+                DtoGEP1(getI8Type(), address, flat.fields[i].offset),
                 DtoConstSize_t(flat.fields[i].ty->size()));
     }
     return DtoLoad(asType, buffer, ".HardfloatRewrite_arg");
@@ -124,8 +125,7 @@ struct HardfloatRewrite : ABIRewrite {
     LLValue *ret = DtoRawAlloca(DtoType(dty), alignment,
                                 ".HardfloatRewrite_param_storage");
     for (unsigned i = 0; i < (unsigned)flat.length; ++i) {
-      DtoMemCpy(DtoGEP1(getI8Type(), DtoBitCast(ret, getVoidPtrType()),
-                        flat.fields[i].offset),
+      DtoMemCpy(DtoGEP1(getI8Type(), ret, flat.fields[i].offset),
                 DtoGEP(asType, buffer, 0, i),
                 DtoConstSize_t(flat.fields[i].ty->size()));
     }
@@ -160,7 +160,7 @@ private:
 public:
   Type *vaListType() override {
     // va_list is void*
-    return Type::tvoid->pointerTo();
+    return pointerTo(Type::tvoid);
   }
   bool returnInArg(TypeFunction *tf, bool) override {
     if (tf->isref()) {

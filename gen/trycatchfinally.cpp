@@ -270,8 +270,7 @@ void emitBeginCatchMSVC(IRState &irs, Catch *ctch,
   if (!isCPPclass) {
     auto enterCatchFn =
         getRuntimeFunction(ctch->loc, irs.module, "_d_eh_enter_catch");
-    irs.CreateCallOrInvoke(enterCatchFn, DtoBitCast(exnObj, getVoidPtrType()),
-                           clssInfo);
+    irs.CreateCallOrInvoke(enterCatchFn, exnObj, clssInfo);
   }
 }
 }
@@ -663,7 +662,7 @@ TryCatchFinallyScopes::getLandingPadRef(CleanupCursor scope) {
 
 namespace {
   llvm::LandingPadInst *createLandingPadInst(IRState &irs) {
-    LLType *retType = LLStructType::get(LLType::getInt8PtrTy(irs.context()),
+    LLType *retType = LLStructType::get(getVoidPtrType(irs.context()),
                                         LLType::getInt32Ty(irs.context()));
     if (!irs.func()->hasLLVMPersonalityFn()) {
       irs.func()->setLLVMPersonalityFn(
@@ -730,9 +729,8 @@ llvm::BasicBlock *TryCatchFinallyScopes::emitLandingPad() {
 
       // "Call" llvm.eh.typeid.for, which gives us the eh selector value to
       // compare the landing pad selector value with.
-      llvm::Value *ehTypeId =
-          irs.ir->CreateCall(GET_INTRINSIC_DECL(eh_typeid_for),
-                             DtoBitCast(cb.classInfoPtr, getVoidPtrType()));
+      llvm::Value *ehTypeId = irs.ir->CreateCall(
+          GET_INTRINSIC_DECL(eh_typeid_for), cb.classInfoPtr);
 
       // Compare the selector value from the unwinder against the expected
       // one and branch accordingly.

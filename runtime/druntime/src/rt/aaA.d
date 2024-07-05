@@ -451,10 +451,7 @@ unittest
         string[412] names;
         ubyte[1024] moredata;
     }
-    //FIXME: temporary disabled due to
-    // sizeti = __traits(classInstanceSize, TypeInfo_Struct)
-    // returns very big value
-    version(OnlyLowMemUnittest){} else
+    version (OnlyLowMemUnittests) {} else
     test!(Large, Large);
 }
 

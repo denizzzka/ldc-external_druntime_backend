@@ -41,6 +41,8 @@
 #include <math.h>
 #include <stdio.h>
 
+using namespace dmd;
+
 //////////////////////////////////////////////////////////////////////////////
 // FIXME: Integrate these functions
 void GccAsmStatement_toIR(GccAsmStatement *stmt, IRState *irs);
@@ -259,14 +261,6 @@ public:
             DtoIsInMemoryOnly(rt) && isaPointer(returnValue)) {
           Logger::println("Loading value for return");
           returnValue = DtoLoad(funcType->getReturnType(), returnValue);
-        }
-
-        // can happen for classes
-        if (returnValue->getType() != funcType->getReturnType()) {
-          returnValue =
-              irs->ir->CreateBitCast(returnValue, funcType->getReturnType());
-          IF_LOG Logger::cout()
-              << "return value after cast: " << *returnValue << '\n';
         }
       }
     } else {

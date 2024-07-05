@@ -35,10 +35,14 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/Support/Endian.h"
+#include "llvm/Support/MD5.h"
 
 #ifndef NDEBUG
 #include "llvm/Support/raw_ostream.h"
 #endif
+
+using namespace dmd;
 
 //////////////////////////////////////////////////////////////////////////////
 
@@ -192,7 +196,6 @@ LLConstant *IrClass::getVtblInit() {
   if (!cd->isCPPclass()) {
     if (!suppressTypeInfo()) {
       c = getClassInfoSymbol();
-      c = DtoBitCast(c, voidPtrType);
     } else {
       // use null if there are no TypeInfos
       c = llvm::Constant::getNullValue(voidPtrType);
@@ -217,7 +220,7 @@ LLConstant *IrClass::getVtblInit() {
       // it is probably a bug that it still occurs that late.
       if (fd->inferRetType() && !fd->type->nextOf()) {
         Logger::println("Running late functionSemantic to infer return type.");
-        if (!fd->functionSemantic()) {
+        if (!functionSemantic(fd)) {
           if (fd->hasSemantic3Errors()) {
             Logger::println(
                 "functionSemantic failed; using null for vtbl entry.");
@@ -231,7 +234,7 @@ LLConstant *IrClass::getVtblInit() {
         }
       }
 
-      c = DtoBitCast(DtoCallee(fd), voidPtrType);
+      c = DtoCallee(fd);
 
       if (cd->isFuncHidden(fd) && !fd->isFuture()) {
         // fd is hidden from the view of this class. If fd overlaps with any
@@ -247,8 +250,8 @@ LLConstant *IrClass::getVtblInit() {
           if (fd2->isFuture()) {
             continue;
           }
-          if (fd->leastAsSpecialized(fd2, nullptr) != MATCH::nomatch ||
-              fd2->leastAsSpecialized(fd, nullptr) != MATCH::nomatch) {
+          if (FuncDeclaration::leastAsSpecialized(fd, fd2, nullptr) != MATCH::nomatch ||
+              FuncDeclaration::leastAsSpecialized(fd2, fd, nullptr) != MATCH::nomatch) {
             TypeFunction *tf = static_cast<TypeFunction *>(fd->type);
             if (tf->ty == TY::Tfunction) {
               error(cd->loc,
@@ -289,7 +292,8 @@ LLConstant *IrClass::getVtblInit() {
 
 namespace {
 unsigned buildClassinfoFlags(ClassDeclaration *cd) {
-  auto flags = ClassFlags::hasOffTi | ClassFlags::hasTypeInfo;
+  auto flags =
+      ClassFlags::hasOffTi | ClassFlags::hasTypeInfo | ClassFlags::hasNameSig;
   if (cd->isInterfaceDeclaration()) {
     if (cd->isCOMinterface()) {
       flags |= ClassFlags::isCOMclass;
@@ -344,7 +348,7 @@ LLConstant *IrClass::getClassInfoInit() {
   Type *const cinfoType = getClassInfoType(); // check declaration in object.d
   ClassDeclaration *const cinfo = Type::typeinfoclass;
 
-  if (cinfo->fields.length != 12) {
+  if (cinfo->fields.length != 14) {
     error(Loc(), "Unexpected number of fields in `object.ClassInfo`; "
                  "druntime version does not match compiler (see -v)");
     fatal();
@@ -376,7 +380,7 @@ LLConstant *IrClass::getClassInfoInit() {
   if (isInterface) {
     b.push_array(0, getNullValue(voidPtrPtr));
   } else {
-    b.push_array(cd->vtbl.length, DtoBitCast(getVtblSymbol(), voidPtrPtr));
+    b.push_array(cd->vtbl.length, getVtblSymbol());
   }
 
   // Interface[] interfaces
@@ -392,32 +396,38 @@ LLConstant *IrClass::getClassInfoInit() {
 
   // void* destructor
   assert(!isInterface || !cd->tidtor);
-  b.push_funcptr(cd->tidtor, Type::tvoidptr);
+  b.push_funcptr(cd->tidtor);
 
   // void function(Object) classInvariant
   assert(!isInterface || !cd->inv);
-  VarDeclaration *invVar = cinfo->fields[6];
-  b.push_funcptr(cd->inv, invVar->type);
+  b.push_funcptr(cd->inv);
 
   // ClassFlags m_flags
   const auto flags = buildClassinfoFlags(cd);
-  b.push_uint(flags);
+  b.push(DtoConstUshort(flags));
+
+  // ushort depth
+  {
+    uint16_t depth = 0;
+    for (auto pc = cd; pc; pc = pc->baseClass)
+      ++depth; // distance to Object
+    b.push(DtoConstUshort(depth));
+  }
 
   // void* deallocator
   b.push_null_vp();
 
   // OffsetTypeInfo[] m_offTi
-  VarDeclaration *offTiVar = cinfo->fields[9];
+  VarDeclaration *offTiVar = cinfo->fields[10];
   b.push_null(offTiVar->type);
 
   // void function(Object) defaultConstructor
-  VarDeclaration *defConstructorVar = cinfo->fields[10];
   CtorDeclaration *defConstructor = cd->defaultCtor;
   if (defConstructor && (defConstructor->storage_class & STCdisable)) {
     defConstructor = nullptr;
   }
   assert(!isInterface || !defConstructor);
-  b.push_funcptr(defConstructor, defConstructorVar->type);
+  b.push_funcptr(defConstructor);
 
   // immutable(void)* m_RTInfo
   if (cd->getRTInfo) {
@@ -426,6 +436,23 @@ LLConstant *IrClass::getClassInfoInit() {
     b.push_size_as_vp(0); // no pointers
   } else {
     b.push_size_as_vp(1); // has pointers
+  }
+
+  // uint[4] nameSig
+  {
+    llvm::MD5 hasher;
+    hasher.update(name);
+    llvm::MD5::MD5Result result;
+    hasher.final(result);
+
+    LLConstant *dwords[4];
+    for (int i = 0; i < 4; ++i) {
+      // make sure the 4 dwords don't depend on the endianness of the *host*
+      dwords[i] = DtoConstUint(llvm::support::endian::read32le(&result[4 * i]));
+    }
+
+    auto t = llvm::ArrayType::get(dwords[0]->getType(), 4);
+    b.push(LLConstantArray::get(t, dwords));
   }
 
   // build the initializer
@@ -516,7 +543,7 @@ LLConstant *IrClass::getInterfaceVtblInit(BaseClass *b,
       llvm::Constant *c = llvm::ConstantExpr::getGetElementPtr(
             interfaceInfosZ->getValueType(), interfaceInfosZ, idxs, true);
 
-      constants.push_back(DtoBitCast(c, voidPtrTy));
+      constants.push_back(c);
     } else {
       // use null if there are no TypeInfos
       constants.push_back(llvm::Constant::getNullValue(voidPtrTy));
@@ -549,7 +576,7 @@ LLConstant *IrClass::getInterfaceVtblInit(BaseClass *b,
     if (fd->interfaceVirtual)
       thunkOffset -= fd->interfaceVirtual->offset;
     if (thunkOffset == 0) {
-      constants.push_back(DtoBitCast(irFunc->getLLVMCallee(), voidPtrTy));
+      constants.push_back(irFunc->getLLVMCallee());
       continue;
     }
 
@@ -626,10 +653,7 @@ LLConstant *IrClass::getInterfaceVtblInit(BaseClass *b,
               ? 0
               : 1;
       LLValue *&thisArg = args[thisArgIndex];
-      LLType *targetThisType = thisArg->getType();
-      thisArg = DtoBitCast(thisArg, getVoidPtrType());
-      thisArg = DtoGEP1(LLType::getInt8Ty(gIR->context()), thisArg, DtoConstInt(-thunkOffset));
-      thisArg = DtoBitCast(thisArg, targetThisType);
+      thisArg = DtoGEP1(getI8Type(), thisArg, DtoConstInt(-thunkOffset));
 
       // all calls that might be subject to inlining into a caller with debug
       // info should have debug info, too
@@ -652,7 +676,7 @@ LLConstant *IrClass::getInterfaceVtblInit(BaseClass *b,
       gIR->funcGenStates.pop_back();
     }
 
-    constants.push_back(DtoBitCast(thunk, voidPtrTy));
+    constants.push_back(thunk);
   }
 
   // build the vtbl constant
@@ -704,8 +728,6 @@ LLConstant *IrClass::getClassInfoInterfaces() {
   LLSmallVector<LLConstant *, 6> constants;
   constants.reserve(cd->vtblInterfaces->length);
 
-  LLType *classinfo_type = DtoType(getClassInfoType());
-  LLType *voidptrptr_type = DtoType(Type::tvoid->pointerTo()->pointerTo());
   LLStructType *interface_type =
       isaStruct(DtoType(interfacesArrayType->nextOf()));
   assert(interface_type);
@@ -722,16 +744,14 @@ LLConstant *IrClass::getClassInfoInterfaces() {
 
     // classinfo
     LLConstant *ci = irinter->getClassInfoSymbol();
-    ci = DtoBitCast(ci, classinfo_type);
 
     // vtbl
     LLConstant *vtb;
     // interface get a null
     if (cd->isInterfaceDeclaration()) {
-      vtb = DtoConstSlice(DtoConstSize_t(0), getNullValue(voidptrptr_type));
+      vtb = DtoConstSlice(DtoConstSize_t(0), getNullValue(getVoidPtrType()));
     } else {
       vtb = getInterfaceVtblSymbol(it, i);
-      vtb = DtoBitCast(vtb, voidptrptr_type);
       auto vtblSize = itc->getVtblType()->getNumContainedTypes();
       vtb = DtoConstSlice(DtoConstSize_t(vtblSize), vtb);
     }

@@ -18,6 +18,15 @@ enum Sizeok : ubyte
     done,               /// size of aggregate is set correctly
 }
 
+/// D Language version
+enum Edition : ubyte
+{
+    none,
+    legacy,          /// Before the introduction of editions
+    v2024,           /// Experimental first new edition
+    latest = v2024   /// Newest edition that this compiler knows of
+}
+
 enum Baseok : ubyte
 {
     none,               /// base classes not computed yet
@@ -152,7 +161,7 @@ bool isRefReturnScope(const ulong stc)
 
 /* This is different from the one in declaration.d, make that fix a separate PR */
 static if (0)
-extern (C++) __gshared const(StorageClass) STCStorageClass =
+__gshared const(StorageClass) STCStorageClass =
     (STC.auto_ | STC.scope_ | STC.static_ | STC.extern_ | STC.const_ | STC.final_ |
      STC.abstract_ | STC.synchronized_ | STC.deprecated_ | STC.override_ | STC.lazy_ |
      STC.alias_ | STC.out_ | STC.in_ | STC.manifest | STC.immutable_ | STC.shared_ |
@@ -441,6 +450,24 @@ enum FileType : ubyte
     c,    /// C source file
 }
 
+/// In which context checks for assertions, contracts, bounds checks etc. are enabled
+enum CHECKENABLE : ubyte
+{
+    _default,     /// initial value
+    off,          /// never do checking
+    on,           /// always do checking
+    safeonly,     /// do checking only in @safe functions
+}
+
+/// What should happend when an assertion fails
+enum CHECKACTION : ubyte
+{
+    D,            /// call D assert on failure
+    C,            /// call C assert on failure
+    halt,         /// cause program halt on failure
+    context,      /// call D assert with the error context on failure
+}
+
 extern (C++) struct structalign_t
 {
   private:
@@ -458,4 +485,10 @@ extern (C++) struct structalign_t
     uint get() const       { return value; }
     bool isPack() const    { return pack; }
     void setPack(bool pack) { this.pack = pack; }
+}
+
+/// Use to return D arrays from C++ functions
+extern (C++) struct DArray(T)
+{
+    T[] data;
 }

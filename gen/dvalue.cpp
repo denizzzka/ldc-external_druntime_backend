@@ -105,11 +105,13 @@ LLValue *DSliceValue::getPtr() {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-DFuncValue::DFuncValue(Type *t, FuncDeclaration *fd, LLValue *v, LLValue *vt)
-    : DRValue(t, v), func(fd), vthis(vt) {}
+DFuncValue::DFuncValue(Type *t, FuncDeclaration *fd, LLValue *v, LLValue *vt,
+                       LLValue *vtable)
+    : DRValue(t, v), func(fd), vthis(vt), vtable(vtable) {}
 
-DFuncValue::DFuncValue(FuncDeclaration *fd, LLValue *v, LLValue *vt)
-    : DFuncValue(fd->type, fd, v, vt) {}
+DFuncValue::DFuncValue(FuncDeclaration *fd, LLValue *v, LLValue *vt,
+                       LLValue *vtable)
+    : DFuncValue(fd->type, fd, v, vt, vtable) {}
 
 bool DFuncValue::definedInFuncEntryBB() {
   return isDefinedInFuncEntryBB(val) &&
@@ -157,12 +159,7 @@ DRValue *DLValue::getRVal() {
 ////////////////////////////////////////////////////////////////////////////////
 
 DSpecialRefValue::DSpecialRefValue(Type *t, LLValue *v) : DLValue(v, t) {
-#if LDC_LLVM_VER >= 1700 // LLVM >= 17 uses opaque pointers, type check boils
-                         // down to pointer check only.
   assert(v->getType()->isPointerTy());
-#else
-  assert(v->getType() == DtoPtrToType(t)->getPointerTo());
-#endif
 }
 
 DRValue *DSpecialRefValue::getRVal() {
@@ -184,7 +181,7 @@ DBitFieldLValue::DBitFieldLValue(Type *t, LLValue *ptr, BitFieldDeclaration *bf)
 
 DRValue *DBitFieldLValue::getRVal() {
   const auto sizeInBits = intType->getBitWidth();
-  const auto ptr = DtoBitCast(val, getPtrToType(intType));
+  const auto ptr = val;
   LLValue *v = gIR->ir->CreateAlignedLoad(intType, ptr, llvm::MaybeAlign(1));
 
   if (bf->type->isunsigned()) {
@@ -209,7 +206,7 @@ DRValue *DBitFieldLValue::getRVal() {
 void DBitFieldLValue::store(LLValue *value) {
   assert(value->getType()->isIntegerTy());
 
-  const auto ptr = DtoBitCast(val, getPtrToType(intType));
+  const auto ptr = val;
 
   const auto mask =
       llvm::APInt::getLowBitsSet(intType->getBitWidth(), bf->fieldWidth);
@@ -235,7 +232,7 @@ DRValue *DDcomputeLValue::getRVal() {
     llvm_unreachable("getRVal() for memory-only type");
     return nullptr;
   }
-  
+
   LLValue *rval = DtoLoad(lltype, val);
   
   const auto ty = type->toBasetype()->ty;

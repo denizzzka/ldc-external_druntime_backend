@@ -2920,7 +2920,7 @@ deprecated:
                 ticksPerSec = 1_000_000;
         }
         else
-            static assert(false);
+            static assert(0, "Unsupported platform");
 
         if (ticksPerSec != 0)
             appOrigin = TickDuration.currSystemTick;

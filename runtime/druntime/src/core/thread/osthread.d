@@ -495,9 +495,7 @@ class Thread : ThreadBase
         slock.lock_nothrow();
         scope(exit) slock.unlock_nothrow();
         {
-            ++nAboutToStart;
-            pAboutToStart = cast(ThreadBase*)realloc(pAboutToStart, Thread.sizeof * nAboutToStart);
-            pAboutToStart[nAboutToStart - 1] = this;
+            incrementAboutToStart(this);
 
             version (Posix)
             {
@@ -985,7 +983,7 @@ class Thread : ThreadBase
      *
      * ------------------------------------------------------------------------
      */
-    static void sleep( Duration val ) @nogc nothrow
+    static void sleep( Duration val ) @nogc nothrow @trusted
     in
     {
         assert( !val.isNegative );
@@ -1251,6 +1249,12 @@ unittest
     assert(!inCriticalRegion);
     thread_resumeAll();
 }
+}
+
+@nogc @safe nothrow
+unittest
+{
+    Thread.sleep(1.msecs);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1573,6 +1577,19 @@ in (fn)
                 "mov %0, sp"       : "=r" (sp);
             }
         }
+        else version (MIPS_N64)
+        {
+            size_t[10] regs = void;
+            static foreach (i; 0 .. 8)
+            {{
+                asm pure nothrow @nogc { ("sd $s"~i.stringof~", %0") : "=m" (regs[i]); }
+            }}
+            asm pure nothrow @nogc {
+                ("sd $gp, %0") : "=m" (regs[8]);
+                ("sd $fp, %0") : "=m" (regs[9]); 
+                ("sd $ra, %0") : "=m" (sp);
+            }
+        }
         else version (MIPS_Any)
         {
             version (MIPS32)      enum store = "sw";
@@ -1713,7 +1730,7 @@ version (LDC)
          * If it isn't, the function is still naked, so the caller's stack pointer
          * is used nevertheless.
          */
-        package extern(D) void* getStackTop() nothrow @nogc @naked
+        private extern(D) void* getStackTop() nothrow @nogc @naked
         {
             version (X86)
                 return __asm!(void*)("movl %esp, $0", "=r");
@@ -1736,7 +1753,7 @@ version (LDC)
          * the slightly different meaning the function must neither be inlined
          * nor naked.
          */
-        package extern(D) void* getStackTop() nothrow @nogc
+        private extern(D) void* getStackTop() nothrow @nogc
         {
             import ldc.intrinsics;
             pragma(LDC_never_inline);
@@ -1745,7 +1762,7 @@ version (LDC)
     }
 }
 else
-package extern(D) void* getStackTop() nothrow @nogc
+private extern(D) void* getStackTop() nothrow @nogc
 {
     version (D_InlineAsm_X86)
         asm pure nothrow @nogc { naked; mov EAX, ESP; ret; }
@@ -1769,7 +1786,7 @@ version (DruntimeAbstractRt)
 else
 version (LDC_Windows)
 {
-    package extern(D) void* getStackBottom() nothrow @nogc @naked
+    private extern(D) void* getStackBottom() nothrow @nogc @naked
     {
         version (X86)
             return __asm!(void*)("mov %fs:(4), $0", "=r");
@@ -1780,7 +1797,7 @@ version (LDC_Windows)
     }
 }
 else
-package extern(D) void* getStackBottom() nothrow @nogc
+private extern(D) void* getStackBottom() nothrow @nogc
 {
     version (Windows)
     {
@@ -2237,7 +2254,7 @@ private extern (D) void resume(ThreadBase _t) nothrow @nogc
         }
     }
     else
-        static assert(false);
+        static assert(false, "Platform not supported.");
 }
 
 

@@ -9,14 +9,13 @@
 #pragma once
 
 #include "dsystem.h"
-#include "object.h"
 #include "rmem.h"
 
 struct BitArray
 {
     BitArray()
       : len(0)
-      , ptr(NULL)
+      , ptr(nullptr)
     {}
 
     ~BitArray()

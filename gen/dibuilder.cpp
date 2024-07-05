@@ -39,6 +39,8 @@
 #include "llvm/Support/Path.h"
 #include <functional>
 
+using namespace dmd;
+
 ////////////////////////////////////////////////////////////////////////////////
 
 namespace cl = llvm::cl;
@@ -620,13 +622,16 @@ DIType DIBuilder::CreateCompositeType(Type *t) {
   const auto elemsArray = DBuilder.getOrCreateArray(elems);
 
   DIType ret;
+  const auto runtimeLang = 0;
   if (t->ty == TY::Tclass) {
     ret = DBuilder.createClassType(
         scope, name, file, lineNum, sizeInBits, alignmentInBits,
         classOffsetInBits, DIFlags::FlagZero, derivedFrom, elemsArray,
+#if LDC_LLVM_VER >= 1800
+        runtimeLang,
+#endif
         vtableHolder, templateParams, uniqueIdentifier);
   } else {
-    const auto runtimeLang = 0;
     ret = DBuilder.createStructType(scope, name, file, lineNum, sizeInBits,
                                     alignmentInBits, DIFlags::FlagZero,
                                     derivedFrom, elemsArray, runtimeLang,
@@ -648,7 +653,7 @@ DIType DIBuilder::CreateArrayType(TypeArray *type) {
 
   LLMetadata *elems[] = {CreateMemberType(0, Type::tsize_t, file, "length", 0,
                                           Visibility::public_),
-                         CreateMemberType(0, type->nextOf()->pointerTo(), file,
+                         CreateMemberType(0, pointerTo(type->nextOf()), file,
                                           "ptr", target.ptrsize,
                                           Visibility::public_)};
 
@@ -743,7 +748,7 @@ DIType DIBuilder::CreateDelegateType(TypeDelegate *type) {
   LLMetadata *elems[] = {
       CreateMemberType(0, Type::tvoidptr, file, "ptr", 0,
                        Visibility::public_),
-      CreateMemberType(0, type->next->pointerTo(), file, "funcptr",
+      CreateMemberType(0, pointerTo(type->next), file, "funcptr",
                        target.ptrsize, Visibility::public_)};
 
   return DBuilder.createStructType(scope, name, file,
@@ -1141,12 +1146,7 @@ void DIBuilder::EmitValue(llvm::Value *val, VarDeclaration *vd) {
 void DIBuilder::EmitLocalVariable(llvm::Value *ll, VarDeclaration *vd,
                                   Type *type, bool isThisPtr, bool forceAsLocal,
                                   bool isRefRVal,
-#if LDC_LLVM_VER >= 1400
-                                  llvm::ArrayRef<uint64_t> addr
-#else
-                                  llvm::ArrayRef<int64_t> addr
-#endif
-                                  ) {
+                                  llvm::ArrayRef<uint64_t> addr) {
   if (!mustEmitFullDebugInfo())
     return;
 

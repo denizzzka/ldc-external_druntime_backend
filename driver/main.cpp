@@ -65,11 +65,7 @@
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/StringSaver.h"
-#if LDC_LLVM_VER >= 1400
 #include "llvm/MC/TargetRegistry.h"
-#else
-#include "llvm/Support/TargetRegistry.h"
-#endif
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Target/TargetMachine.h"
 #if LDC_MLIR_ENABLED
@@ -91,6 +87,7 @@ void gendocfile(Module *m);
 // In dmd/mars.d
 void generateJson(Modules *modules);
 
+using namespace dmd;
 using namespace opts;
 
 static StringsAdapter impPathsStore("I", global.params.imppath);
@@ -188,6 +185,10 @@ void tryParse(const llvm::SmallVectorImpl<const char *> &args, size_t i,
 }
 
 bool tryParseLowmem(const llvm::SmallVectorImpl<const char *> &args) {
+#if LDC_LLVM_VER >= 1800
+  #define startswith starts_with
+#endif
+
   bool lowmem = false;
   for (size_t i = 1; i < args.size(); ++i) {
     if (args::isRunArg(args[i]))
@@ -205,6 +206,10 @@ bool tryParseLowmem(const llvm::SmallVectorImpl<const char *> &args) {
     }
   }
   return lowmem;
+
+#if LDC_LLVM_VER >= 1800
+  #undef startswith
+#endif
 }
 
 const char *
@@ -385,10 +390,8 @@ void parseCommandLine(Strings &sourceFiles) {
   }
 
 #if _WIN32
-  const auto toWinPaths = [](Strings *paths) {
-    if (!paths)
-      return;
-    for (auto &path : *paths)
+  const auto toWinPaths = [](Strings &paths) {
+    for (auto &path : paths)
       path = opts::dupPathString(path).ptr;
   };
   toWinPaths(global.params.imppath);
@@ -555,29 +558,11 @@ void parseCommandLine(Strings &sourceFiles) {
   global.params.dihdr.fullOutput = opts::hdrKeepAllBodies;
   global.params.disableRedZone = opts::disableRedZone();
 
-  // Passmanager selection options depend on LLVM version
-#if LDC_LLVM_VER < 1400
-  // LLVM < 14 only supports the legacy passmanager
-  if (!opts::isUsingLegacyPassManager()) {
-    error(Loc(), "LLVM version 13 or below only supports --passmanager=legacy");
-  }
-#endif
-#if LDC_LLVM_VER >= 1500
-  // LLVM >= 15 only supports the new passmanager
-  if (opts::isUsingLegacyPassManager()) {
-    error(Loc(), "LLVM version 15 or above only supports --passmanager=new");
-  }
-#endif
-
+  // enforce opaque IR pointers
 #if LDC_LLVM_VER >= 1700
-  if (!opts::enableOpaqueIRPointers)
-    error(Loc(),
-          "LLVM version 17 or above only supports --opaque-pointers=true");
-#elif LDC_LLVM_VER >= 1500
-  getGlobalContext().setOpaquePointers(opts::enableOpaqueIRPointers);
-#elif LDC_LLVM_VER >= 1400
-  if (opts::enableOpaqueIRPointers)
-    getGlobalContext().enableOpaquePointers();
+  // supports opaque IR pointers only
+#else
+  getGlobalContext().setOpaquePointers(true);
 #endif
 }
 
@@ -845,6 +830,7 @@ void registerPredefinedTargetVersions() {
     if (triple.getEnvironment() == llvm::Triple::Android) {
       VersionCondition::addPredefinedGlobalIdent("Android");
       VersionCondition::addPredefinedGlobalIdent("CRuntime_Bionic");
+      VersionCondition::addPredefinedGlobalIdent("CppRuntime_Clang");
     } else if (triple.isMusl()) {
       VersionCondition::addPredefinedGlobalIdent("CRuntime_Musl");
       VersionCondition::addPredefinedGlobalIdent("CppRuntime_Gcc");
@@ -921,6 +907,9 @@ void registerPredefinedTargetVersions() {
   case llvm::Triple::WASI:
     VersionCondition::addPredefinedGlobalIdent("WASI");
     VersionCondition::addPredefinedGlobalIdent("CRuntime_WASI");
+    break;
+  case llvm::Triple::Emscripten:
+    VersionCondition::addPredefinedGlobalIdent("Emscripten");
     break;
   default:
     if (triple.getEnvironment() == llvm::Triple::Android) {
@@ -1033,16 +1022,6 @@ void registerPredefinedVersions() {
     VersionCondition::addPredefinedGlobalIdent("LDC_ThreadSanitizer");
   }
 
-  // Set a version identifier for whether opaque pointers are enabled or not. (needed e.g. for intrinsic mangling)
-#if LDC_LLVM_VER >= 1700
-  // Since LLVM 17, IR pointers are always opaque.
-  VersionCondition::addPredefinedGlobalIdent("LDC_LLVM_OpaquePointers");
-#elif LDC_LLVM_VER >= 1400
-  if (!getGlobalContext().supportsTypedPointers()) {
-    VersionCondition::addPredefinedGlobalIdent("LDC_LLVM_OpaquePointers");
-  }
-#endif
-
 // Expose LLVM version to runtime
 #define STR(x) #x
 #define XSTR(x) STR(x)
@@ -1145,9 +1124,6 @@ int cppmain() {
     fatal();
   }
 
-  global.compileEnv.previewIn = global.params.previewIn;
-  global.compileEnv.ddocOutput = global.params.ddoc.doOutput;
-
   if (opts::fTimeTrace) {
     initializeTimeTrace(opts::fTimeTraceGranularity, 0, opts::allArguments[0]);
   }
@@ -1232,8 +1208,7 @@ int cppmain() {
   int status;
   {
     TimeTraceScope timeScope("ExecuteCompiler");
-    Strings libmodules;
-    status = mars_mainBody(global.params, files, libmodules);
+    status = mars_tryMain(global.params, files);
   }
 
   // try to remove the temp objects dir if created for -cleanup-obj
