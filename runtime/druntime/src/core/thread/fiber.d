@@ -160,6 +160,16 @@ private
             version = AsmExternal;
         }
     }
+    else version (RISCV32)
+    {
+        version = RISCV_Any;
+        version = AsmExternal;
+    }
+    else version (RISCV64)
+    {
+        version = RISCV_Any;
+        version = AsmExternal;
+    }
     else version (SPARC)
     {
         // NOTE: The SPARC ABI specifies only doubleword alignment.
@@ -177,6 +187,13 @@ private
             version = AsmExternal;
             version = AlignFiberStackTo16Byte;
         }
+    }
+
+    version (RISCV_Any)
+    {
+        // External asm stack  initialization is used to support different register
+        // storage sizes that the D compiler does not know about
+        extern (C) static void* fiber_initStack(void* stack, void* entry) nothrow @nogc;
     }
 
     version (Posix)
@@ -2054,6 +2071,13 @@ private:
              * Position the stack pointer above the lr register
              */
             pstack += int.sizeof * 1;
+        }
+        else version (RISCV_Any)
+        {
+            version (StackGrowsDown) {}
+            else static assert(false, "RISC-V only supports decrementing stacks");
+
+            pstack = fiber_initStack(&pstack, &fiber_entryPoint);
         }
         else static if ( __traits( compiles, ucontext_t ) )
         {
