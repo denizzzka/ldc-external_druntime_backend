@@ -61,6 +61,18 @@ fiber_initStack:
 
     ret
 
+.text
+.globl fiber_trampoline
+.type  fiber_trampoline, @function
+fiber_trampoline:
+.cfi_startproc
+    // discard ra value - fiber_entryPoint never returns
+    .cfi_undefined ra
+
+    // non-returnable jump (i.e., a non-unwinding tail-call) to fiber_entryPoint
+    tail fiber_entryPoint
+.cfi_endproc
+
 /**
  * Parameters:
  * a0 - void** - ptr to old stack pointer
