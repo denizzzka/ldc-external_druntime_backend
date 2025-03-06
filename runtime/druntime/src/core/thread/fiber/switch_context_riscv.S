@@ -65,7 +65,7 @@ fiber_initStack:
 .globl fiber_trampoline
 .type  fiber_trampoline, @function
 fiber_trampoline:
-.cfi_startproc
+.cfi_startproc // necessary for .eh_frame
     // discard ra value - fiber_entryPoint never returns
     .cfi_undefined ra
 
