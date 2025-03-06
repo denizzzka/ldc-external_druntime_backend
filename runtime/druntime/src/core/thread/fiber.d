@@ -2077,7 +2077,7 @@ private:
             version (StackGrowsDown) {}
             else static assert(false, "RISC-V only supports decrementing stacks");
 
-            pstack = fiber_initStack(&pstack, &fiber_entryPoint);
+            pstack = fiber_initStack(pstack, &fiber_entryPoint);
         }
         else static if ( __traits( compiles, ucontext_t ) )
         {
