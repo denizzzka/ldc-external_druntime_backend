@@ -59,6 +59,8 @@ fiber_initStack:
     // store fiber_entryPoint pointer as saved ra register below stack pointer
     save a1, -reg_s(a0)
 
+    ret
+
 /**
  * Parameters:
  * a0 - void** - ptr to old stack pointer
