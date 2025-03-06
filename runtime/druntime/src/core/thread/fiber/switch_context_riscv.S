@@ -8,11 +8,22 @@
 
 #if defined(__riscv)
 
-// Writes a register to the memory regardless of register bit size
+// For saving a register in memory, regardless of the size of machine register bit size
 #if(__riscv_xlen == 32)
 #define save sw
-#else
+#define fsave fsw
+#else // rv64
 #define save sd
+#define fsave fsd
+#endif
+
+// Ditto, but for loading
+#if(__riscv_xlen == 32)
+#define load lw
+#define fload flw
+#else // rv64
+#define load ld
+#define fload fld
 #endif
 
 // Integer register size, bytes
@@ -83,7 +94,7 @@ fiber_switchContext:
     addi sp, sp, reg_s /*excluded ra*/ + floats_storage_size
 
     // ra stored above of the current stack
-    sw ra, -(1 * reg_s)(sp)
+    save ra, -(1 * reg_s)(sp)
 
 #if defined(__riscv_flen)
     // Floats also stored above of the current stack.
@@ -93,72 +104,72 @@ fiber_switchContext:
     //
     // Shift (by ra register size) is added in addition to multiplication due
     // to the fact that the sizes of integer and float registers can differ.
-    fsw fs1, -(1 * freg_s + reg_s)(sp)
-    fsw fs2, -(2 * freg_s + reg_s)(sp)
-    fsw fs3, -(3 * freg_s + reg_s)(sp)
-    fsw fs4, -(4 * freg_s + reg_s)(sp)
-    fsw fs5, -(5 * freg_s + reg_s)(sp)
-    fsw fs6, -(6 * freg_s + reg_s)(sp)
-    fsw fs7, -(7 * freg_s + reg_s)(sp)
-    fsw fs8, -(8 * freg_s + reg_s)(sp)
-    fsw fs9, -(9 * freg_s + reg_s)(sp)
-    fsw fs10, -(10 * freg_s + reg_s)(sp)
-    fsw fs11, -(11 * freg_s + reg_s)(sp)
-    fsw fs0, -(12 * freg_s + reg_s)(sp)
+    fsave fs1, -(1 * freg_s + reg_s)(sp)
+    fsave fs2, -(2 * freg_s + reg_s)(sp)
+    fsave fs3, -(3 * freg_s + reg_s)(sp)
+    fsave fs4, -(4 * freg_s + reg_s)(sp)
+    fsave fs5, -(5 * freg_s + reg_s)(sp)
+    fsave fs6, -(6 * freg_s + reg_s)(sp)
+    fsave fs7, -(7 * freg_s + reg_s)(sp)
+    fsave fs8, -(8 * freg_s + reg_s)(sp)
+    fsave fs9, -(9 * freg_s + reg_s)(sp)
+    fsave fs10, -(10 * freg_s + reg_s)(sp)
+    fsave fs11, -(11 * freg_s + reg_s)(sp)
+    fsave fs0, -(12 * freg_s + reg_s)(sp)
 #endif
 
     // Integer register data stored on the stack in the usual way
-    sw s0, (0 * reg_s)(sp)
-    sw s1, (1 * reg_s)(sp)
-    sw s2, (2 * reg_s)(sp)
-    sw s3, (3 * reg_s)(sp)
-    sw s4, (4 * reg_s)(sp)
-    sw s5, (5 * reg_s)(sp)
-    sw s6, (6 * reg_s)(sp)
-    sw s7, (7 * reg_s)(sp)
-    sw s8, (8 * reg_s)(sp)
-    sw s9, (9 * reg_s)(sp)
-    sw s10, (10 * reg_s)(sp)
-    sw s11, (11 * reg_s)(sp)
+    save s0, (0 * reg_s)(sp)
+    save s1, (1 * reg_s)(sp)
+    save s2, (2 * reg_s)(sp)
+    save s3, (3 * reg_s)(sp)
+    save s4, (4 * reg_s)(sp)
+    save s5, (5 * reg_s)(sp)
+    save s6, (6 * reg_s)(sp)
+    save s7, (7 * reg_s)(sp)
+    save s8, (8 * reg_s)(sp)
+    save s9, (9 * reg_s)(sp)
+    save s10, (10 * reg_s)(sp)
+    save s11, (11 * reg_s)(sp)
 
     // Save current sp to oldp
-    sw sp, (a0)
+    save sp, (a0)
 
     // Load sp from newp (with keep in mind about sp adjustment)
     addi sp, a1, 0;
 
     // Load ra from above of the stack border
-    lw ra, -(1 * reg_s)(sp)
+    load ra, -(1 * reg_s)(sp)
 
 #if defined(__riscv_flen)
     // Loading floats
-    flw fs1, -(1 * freg_s + reg_s)(sp)
-    flw fs2, -(2 * freg_s + reg_s)(sp)
-    flw fs3, -(3 * freg_s + reg_s)(sp)
-    flw fs4, -(4 * freg_s + reg_s)(sp)
-    flw fs5, -(5 * freg_s + reg_s)(sp)
-    flw fs6, -(6 * freg_s + reg_s)(sp)
-    flw fs7, -(7 * freg_s + reg_s)(sp)
-    flw fs8, -(8 * freg_s + reg_s)(sp)
-    flw fs9, -(9 * freg_s + reg_s)(sp)
-    flw fs10, -(10 * freg_s + reg_s)(sp)
-    flw fs11, -(11 * freg_s + reg_s)(sp)
-    flw fs0, -(12 * freg_s + reg_s)(sp)
+    fload fs1, -(1 * freg_s + reg_s)(sp)
+    fload fs2, -(2 * freg_s + reg_s)(sp)
+    fload fs3, -(3 * freg_s + reg_s)(sp)
+    fload fs4, -(4 * freg_s + reg_s)(sp)
+    fload fs5, -(5 * freg_s + reg_s)(sp)
+    fload fs6, -(6 * freg_s + reg_s)(sp)
+    fload fs7, -(7 * freg_s + reg_s)(sp)
+    fload fs8, -(8 * freg_s + reg_s)(sp)
+    fload fs9, -(9 * freg_s + reg_s)(sp)
+    fload fs10, -(10 * freg_s + reg_s)(sp)
+    fload fs11, -(11 * freg_s + reg_s)(sp)
+    fload fs0, -(12 * freg_s + reg_s)(sp)
 #endif
 
     // Load registers from obtained stack
-    lw s0, (0 * reg_s)(sp)
-    lw s1, (1 * reg_s)(sp)
-    lw s2, (2 * reg_s)(sp)
-    lw s3, (3 * reg_s)(sp)
-    lw s4, (4 * reg_s)(sp)
-    lw s5, (5 * reg_s)(sp)
-    lw s6, (6 * reg_s)(sp)
-    lw s7, (7 * reg_s)(sp)
-    lw s8, (8 * reg_s)(sp)
-    lw s9, (9 * reg_s)(sp)
-    lw s10, (10 * reg_s)(sp)
-    lw s11, (11 * reg_s)(sp)
+    load s0, (0 * reg_s)(sp)
+    load s1, (1 * reg_s)(sp)
+    load s2, (2 * reg_s)(sp)
+    load s3, (3 * reg_s)(sp)
+    load s4, (4 * reg_s)(sp)
+    load s5, (5 * reg_s)(sp)
+    load s6, (6 * reg_s)(sp)
+    load s7, (7 * reg_s)(sp)
+    load s8, (8 * reg_s)(sp)
+    load s9, (9 * reg_s)(sp)
+    load s10, (10 * reg_s)(sp)
+    load s11, (11 * reg_s)(sp)
 
     // Freeing stack
     // (Floats storage was "freed" before floats was actually stored)
