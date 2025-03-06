@@ -42,7 +42,7 @@ floats_storage_size = freg_s * 12 // all callee-saved float registers
 /**
  * Parameters:
  * a0 - void* - pointer to a new stack
- * a1 - void* - pointer to the fiber_entryPoint
+ * a1 - void* - pointer to the entry point
  *
  * Returns:
  * a0 - void* - modified new stack pointer
@@ -56,7 +56,7 @@ fiber_initStack:
     // adjust stack pointer
     addi a0, a0, -ints_storage_size
 
-    // store fiber_entryPoint pointer as saved ra register below stack pointer
+    // store entry point start address as saved ra register below stack pointer
     save a1, -reg_s(a0)
 
     ret
