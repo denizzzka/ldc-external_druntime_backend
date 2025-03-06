@@ -8,6 +8,13 @@
 
 #if defined(__riscv)
 
+// Writes a register to the memory regardless of register bit size
+#if(__riscv_xlen == 32)
+#define save sw
+#else
+#define save sd
+#endif
+
 // Integer register size, bytes
 reg_s = __riscv_xlen / 8
 
@@ -33,13 +40,13 @@ floats_storage_size = freg_s * 12 // all callee-saved float registers
 .globl fiber_initStack
 .type  fiber_initStack, @function
 fiber_initStack:
-    // At this point assumed that memory for the stack is already allocated and zeroed
+    // At this point assumed that memory for the stack is already allocated (but not zeroed)
 
     // adjust stack pointer
     addi a0, a0, -ints_storage_size
 
     // store fiber_entryPoint pointer as saved ra register below stack pointer
-    sw a1, -reg_s(a0)
+    save a1, -reg_s(a0)
 
 /**
  * Parameters:
