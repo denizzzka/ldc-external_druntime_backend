@@ -137,8 +137,8 @@ fiber_switchContext:
     // Save current sp to oldp
     save sp, (a0)
 
-    // Load sp from newp (with keep in mind about sp adjustment)
-    addi sp, a1, 0;
+    // Load sp from newp
+    addi sp, a1, 0
 
     // Load ra from above of the stack border
     load ra, -(1 * reg_s)(sp)
